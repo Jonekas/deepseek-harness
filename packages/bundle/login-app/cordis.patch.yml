@@ -1,0 +1,17 @@
+# The dsh-login-app bundle patch: a terminal surface for the authorization
+# seam, riding over dsh-base. Base already mounts the credential store and the
+# dormant pi-ai adapter; this layer adds the seam those provider flows register
+# into, plus the runner that drives one attempt and exits.
+#
+#   dsh --profile login                 list what can be signed into
+#   dsh --profile login anthropic       sign in to Claude Pro/Max
+#   dsh --profile login openai-codex    sign in to ChatGPT Codex
+#
+# The grant is written by the provider library through the ordinary credential
+# store, so the Web profile reads and refreshes it with no further step.
+- insert:
+    - id: authorization
+      name: '@deepseek-ai/dsh-authorization'
+
+    - id: login-runner
+      name: '@deepseek-ai/dsh-login-app'
