@@ -141,6 +141,13 @@ export type WorkspaceBrowserInjected = {
    */
   restoreSession: (sessionId: SessionId) => Promise<void>
   /**
+   * Delete a Session and every subagent descendant it owns, discarding its
+   * stored log and its Workspace accounting. Rejects while the Session or one
+   * of those descendants is running.
+   * @returns every deleted Session id, the requested Session first.
+   */
+  deleteSession: (sessionId: SessionId) => Promise<readonly SessionId[]>
+  /**
    * Reorder a session inside its Workspace account (DOM-insertBefore
    * semantics: omitted anchor appends to the end). The view refreshes from
    * the Host response/changed frame; failures leave the order unchanged.

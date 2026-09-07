@@ -13,7 +13,7 @@ import {
   sessionFormatCatalog,
 } from '@deepseek-ai/dsh-session-format-catalog'
 import { readdirSync, type Dirent } from 'node:fs'
-import { open, mkdir, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
+import { open, mkdir, readdir, realpath, link, rename, rm, stat, truncate } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
@@ -26,6 +26,7 @@ import {
   type SessionAccess, type SessionHandle,
   type SessionHandleReadResult,
   type SessionLocation, type SessionPersistenceCreateOptions,
+  type SessionPersistenceDeleteOptions,
   type SessionPersistenceListOptions, type SessionPersistenceOpenOptions,
   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
   type SessionPersistenceRevision as PersistenceRevision,
@@ -37,6 +38,7 @@ import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as Sessio
 import {
   assertNoRetiredHeaderFields, encodeSegment, eventLines, generationLogFilename, generationLogPath, logPath, logSuffix,
   parseGenerationLogFilename, projectDir, scanLog, sessionDir, SessionLogScanner, toHeaderLine,
+  TRASH_DIRNAME, trashDir, trashEntryDeletedAt, trashEntryName,
   type JsonlCompression,
 } from './format.ts'
 import {
@@ -84,6 +86,13 @@ export const JsonlCompressionSchema: z<JsonlCompression> = z.union([
   z.const('none'),
 ]).default(DEFAULT_COMPRESSION)
 
+/**
+ * Days a deleted session's bytes survive in `_trash`. Thirty matches the
+ * familiar desktop-trash window: long enough to notice a mistaken delete,
+ * short enough that abandoned bytes do not accumulate indefinitely.
+ */
+const DEFAULT_TRASH_RETENTION_DAYS = 30
+
 /** Plugin config for the JSONL backend's root and physical encoding. */
 export interface Config {
   /**
@@ -96,6 +105,14 @@ export interface Config {
   root: string
   /** Physical encoding; defaults to checksummed Zstandard frames. */
   compression?: JsonlCompression
+  /**
+   * Days a deleted session's bytes stay in the root's `_trash` area before a
+   * later delete discards them. The retained copy is an operator recovery
+   * affordance only — nothing in the harness reads it, and `delete` reports
+   * success the moment the session leaves the addressable set. `0` discards
+   * immediately.
+   */
+  trashRetentionDays?: number
 }
 
 /** One stored event graph whose producer has established immutable sharing. */
@@ -236,6 +253,7 @@ class JsonlSessionPersistence extends SessionPersistence {
   static Config: z<Config> = z.object({
     root: z.string().required(),
     compression: JsonlCompressionSchema,
+    trashRetentionDays: z.number().min(0).default(DEFAULT_TRASH_RETENTION_DAYS),
   })
 
   /** Backend label for diagnostics and effects; shadows `Service.name` without changing the service key. */
@@ -243,6 +261,7 @@ class JsonlSessionPersistence extends SessionPersistence {
 
   private root: string
   private compression: JsonlCompression
+  private trashRetentionMs: number
   private rootEncodingCheck: Promise<void> | undefined
   private readonly tracker = new JsonlBackendTracker(this.name)
   private readonly generationFormat: JsonlGenerationFormatAdapter
@@ -269,6 +288,7 @@ class JsonlSessionPersistence extends SessionPersistence {
     // Resolve once so later process.cwd() changes cannot split one backend across roots.
     this.root = resolve(config.root)
     this.compression = config.compression ?? DEFAULT_COMPRESSION
+    this.trashRetentionMs = (config.trashRetentionDays ?? DEFAULT_TRASH_RETENTION_DAYS) * 86_400_000
     this.generationFormat = {
       currentVersion: sessionFormatCatalog.currentVersion,
       createRestore: header => sessionFormatCatalog.createRestore(header, {
@@ -413,6 +433,78 @@ class JsonlSessionPersistence extends SessionPersistence {
    */
   flush(): Promise<void> {
     return this.tracker.flushAll()
+  }
+
+  /**
+   * Remove one stored session by renaming its directory into the root's
+   * `_trash` area, then discarding expired retentions.
+   *
+   * The rename is the deletion: one atomic filesystem operation inside a
+   * single root, so the session is either addressable or retained and never
+   * half-erased the way a recursive remove can leave it. Write ownership is
+   * claimed for the rename, which both rejects a live writer with
+   * {@link SessionAlreadyOwnedError} and stops one from opening mid-move.
+   *
+   * A created-but-unmaterialized session has no directory to move; its
+   * pending entry belongs to an active creator handle, so the claim rejects
+   * that case rather than silently reporting nothing to delete.
+   * @param id - the stored session to remove.
+   * @param options - optional cancellation.
+   * @returns `true` when a stored session was removed, `false` when none existed.
+   */
+  async delete(id: SessionId, options?: SessionPersistenceDeleteOptions): Promise<boolean> {
+    options?.signal?.throwIfAborted()
+    await this.ensureRootEncoding()
+    options?.signal?.throwIfAborted()
+    // Claim BEFORE the try: a refused claim belongs to the live writer, and
+    // releasing it in the unwind would hand this caller's failure the power to
+    // strip an active handle's ownership.
+    this.tracker.claimWrite(id)
+    try {
+      const selected = await this.findLog(id, options?.signal)
+      if (selected === undefined) return false
+      const source = dirname(selected.currentPath)
+      const destination = join(trashDir(this.root), trashEntryName(id, Date.now()))
+      await mkdir(trashDir(this.root), { recursive: true })
+      options?.signal?.throwIfAborted()
+      await rename(source, destination)
+      this.coldLogMemo.delete(id)
+      return true
+    } finally {
+      this.tracker.releaseClaim(id)
+      // Purging is maintenance, never part of the delete's outcome: a failure
+      // to discard some older retention must not report this delete as failed.
+      await this.purgeExpiredTrash()
+    }
+  }
+
+  /**
+   * Discard trash entries older than the configured retention. Best effort by
+   * construction — an unreadable trash area, a name this build cannot parse,
+   * or a locked entry leaves those bytes for a later attempt.
+   */
+  private async purgeExpiredTrash(): Promise<void> {
+    const root = trashDir(this.root)
+    let entries: Dirent[]
+    try {
+      entries = await readdir(root, { withFileTypes: true })
+    } catch {
+      // No trash area yet, or it is unreadable; nothing to discard either way.
+      return
+    }
+    const cutoff = Date.now() - this.trashRetentionMs
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const deletedAt = trashEntryDeletedAt(entry.name)
+      // An unparseable name is not this build's to reclaim: leave it for an
+      // operator rather than guess at an age.
+      if (deletedAt === undefined || deletedAt > cutoff) continue
+      try {
+        await rm(join(root, entry.name), { recursive: true, force: true })
+      } catch {
+        // A retention still held open elsewhere waits for a later purge.
+      }
+    }
   }
 
   /**
@@ -1506,7 +1598,13 @@ class JsonlSessionPersistence extends SessionPersistence {
       signal?.throwIfAborted()
       const entries = await readdir(this.root, { withFileTypes: true })
       signal?.throwIfAborted()
-      return entries.filter(e => e.isDirectory()).map(e => join(this.root, e.name))
+      // The trash area holds deleted sessions in their original directory
+      // shape. Scanning it would list every deleted session straight back
+      // into the addressable set, so it is excluded by its reserved name —
+      // one `projectKey` can never produce, since that always wraps in `--`.
+      return entries
+        .filter(e => e.isDirectory() && e.name !== TRASH_DIRNAME)
+        .map(e => join(this.root, e.name))
     } catch (error) {
       // Only an absent root means no sessions; rethrow every other I/O failure.
       if (isENOENT(error)) return []

@@ -96,6 +96,15 @@ export interface ISessions {
    */
   fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId>
   /**
+   * Delete a session and every subagent descendant it owns. The rows leave
+   * the list on the Host's removal events; a deleted current selection
+   * clears. Fork children are ordinary sessions and are never included.
+   * @param sessionId - session to delete.
+   * @returns every deleted session id, the requested session first.
+   * @throws when the Host refuses, including a running session or descendant.
+   */
+  delete(sessionId: SessionId): Promise<readonly SessionId[]>
+  /**
    * Resolve an Agent-scoped context view (use-and-discard).
    * @param id - session id.
    * @returns scoped ctx, or undefined for a session neither listed nor already scoped.

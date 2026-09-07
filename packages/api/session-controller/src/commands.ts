@@ -39,6 +39,8 @@ import type {
   SessionCancelValue,
   SessionCreateRequest,
   SessionCreateValue,
+  SessionDeleteRequest,
+  SessionDeleteValue,
   SessionForkRequest,
   SessionForkValue,
   SessionPromptRequest,
@@ -192,6 +194,81 @@ export class SessionCommandController {
         {},
       )
     }
+  }
+
+  /**
+   * Delete one Session and every subagent descendant it owns.
+   *
+   * A subagent child is a Session of its own with its own stored log, and no
+   * surface lists it once its parent is gone, so the descendants travel with
+   * the parent rather than surviving unreachable. Fork children are ordinary
+   * top-level Sessions carrying their own copy of the events they inherited,
+   * so they are never included.
+   *
+   * The work is ordered so a failure cannot half-delete a Session: every
+   * member is checked for activity first, then each is released from the live
+   * store, deleted from persistence, and finally forgotten by the Workspace
+   * registry. A member already absent from persistence still has its
+   * accounting cleaned.
+   * @param request - the Session to delete.
+   * @returns every deleted Session id, parent first.
+   */
+  async delete(request: SessionDeleteRequest): Promise<SessionDeleteValue> {
+    const targets = await this.deletionSet(request.sessionId)
+    // Refuse the whole set before touching any of it: a partially deleted
+    // lineage is worse than a refused one.
+    for (const id of targets) {
+      if (this.ctx.agents.get(id)?.status === 'running') {
+        throw new RemoteError(
+          'session/busy',
+          id === request.sessionId
+            ? `session "${id}" is running; cancel it before deleting`
+            : `session "${request.sessionId}" has a running subagent "${id}"; cancel it before deleting`,
+          { sessionId: id },
+        )
+      }
+    }
+    const deleted: SessionId[] = []
+    for (const id of targets) {
+      // Release first: a live Agent holds its Session's write handle, which
+      // persistence refuses to delete under.
+      await this.agents.releaseSession(id)
+      await this.ctx.sessionPersistence.delete(id)
+      await this.ctx.workspaceRegistry.forgetSession(id)
+      // A cold Session published no disposal edge, so its row needs an
+      // explicit removal; a released one has already emitted its own and
+      // takes this as an idempotent repeat.
+      this.ctx.emit('api-session/removed', id)
+      deleted.push(id)
+    }
+    return { deleted }
+  }
+
+  /**
+   * The Session and its transitive subagent descendants, parent first.
+   * Lineage comes from stored headers, so descendants that were never live in
+   * this process are included.
+   */
+  private async deletionSet(root: SessionId): Promise<readonly SessionId[]> {
+    const stored = await this.ctx.sessionPersistence.list()
+    const childrenByParent = new Map<SessionId, SessionId[]>()
+    for (const { header } of stored) {
+      if (header.origin !== 'subagent' || header.parentSession === undefined) continue
+      const siblings = childrenByParent.get(header.parentSession)
+      if (siblings === undefined) childrenByParent.set(header.parentSession, [header.id])
+      else siblings.push(header.id)
+    }
+    const ordered: SessionId[] = []
+    const seen = new Set<SessionId>()
+    const walk = (id: SessionId): void => {
+      // A malformed lineage cycle must not spin the walk.
+      if (seen.has(id)) return
+      seen.add(id)
+      ordered.push(id)
+      for (const child of childrenByParent.get(id) ?? []) walk(child)
+    }
+    walk(root)
+    return ordered
   }
 
   /**

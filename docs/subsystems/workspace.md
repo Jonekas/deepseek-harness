@@ -403,6 +403,20 @@ archiveSession(sessionId: SessionId): Promise<void>
 restoreSession(sessionId: SessionId): Promise<void>
 
 /**
+ * Drop every registry trace of one session: its workspace accounting slot
+ * and its archive-set membership. Intended for a session whose stored log is
+ * being deleted, so the accounting that a restore would otherwise rely on is
+ * deliberately discarded rather than retained.
+ *
+ * Unlike archiving, this never consults persistence: the caller is removing
+ * the session, so a listing that no longer names it is expected rather than
+ * a fault. An unaccounted, unarchived session writes nothing.
+ * @param sessionId - the session to forget.
+ * @returns resolution after durability.
+ */
+forgetSession(sessionId: SessionId): Promise<void>
+
+/**
  * Resolve by canonical directory path without creating or mutating a
  * workspace. A missing path rejects during `realpath`; an existing unowned
  * directory returns `undefined`.

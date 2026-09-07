@@ -615,6 +615,19 @@ export class SessionManager {
   }
 
   /**
+   * Delete one session and its subagent descendants on the Host.
+   *
+   * Row removal is not applied here: the Host emits `api-session/removed` for
+   * every deleted session, and this manager already drops rows on that relay.
+   * Applying it locally too would race that path for no gain.
+   * @param sessionId - session to delete.
+   * @returns the delete result carrying every removed id.
+   */
+  deleteSession(sessionId: SessionId): Promise<RemoteResult<{ deleted: readonly SessionId[] }>> {
+    return this.remote.session.delete({ sessionId })
+  }
+
+  /**
    * Insert-or-enrich a locally synthesized summary: a new id prepends; an
    * existing entry only gains fields it lacks (the session-added frame and the
    * create() echo race — whichever lands second must fill the placeholder's

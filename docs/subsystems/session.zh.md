@@ -788,6 +788,13 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote('fork') fork(request: SessionForkRequest): Promise<SessionForkValue>
 
 /**
+ * Delete one Session and every subagent descendant it owns.
+ * @param request - the Session to delete.
+ * @returns every deleted Session id, the requested Session first.
+ */
+@Remote('delete') delete(request: SessionDeleteRequest): Promise<SessionDeleteValue>
+
+/**
  * Admit one prompt after explicitly resuming its Session.
  * @param request - Session identity, prompt content, source metadata, and delivery mode.
  * @param signal - caller cancellation before prompt admission begins.

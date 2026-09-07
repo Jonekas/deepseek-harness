@@ -256,6 +256,48 @@ export function projectDir(root: string, cwd: string | undefined): string {
 }
 
 /**
+ * Reserved root-level directory holding deleted sessions until they are
+ * purged. `projectKey` always wraps its slug in `--`, so no project
+ * directory can ever carry this name; listing skips it by that name.
+ */
+export const TRASH_DIRNAME = '_trash'
+
+/**
+ * The retention area deleted sessions are renamed into.
+ * @param root - the backend's session root directory.
+ * @returns the trash directory path under `root`.
+ */
+export function trashDir(root: string): string {
+  return join(root, TRASH_DIRNAME)
+}
+
+/**
+ * One deleted session's retention directory name. The deletion instant leads
+ * so age is readable without opening anything, and the encoded id follows so
+ * an operator can find a specific session by eye.
+ * @param id - the deleted session id.
+ * @param deletedAt - deletion instant in epoch milliseconds.
+ * @returns a single filesystem-safe directory name.
+ */
+export function trashEntryName(id: SessionId, deletedAt: number): string {
+  return `${String(deletedAt).padStart(14, '0')}-${encodeSegment(id)}`
+}
+
+/**
+ * Read the deletion instant back from a {@link trashEntryName}.
+ * @param name - a directory name inside the trash area.
+ * @returns the epoch-millisecond instant, or `undefined` when unparseable.
+ */
+export function trashEntryDeletedAt(name: string): number | undefined {
+  const separator = name.indexOf('-')
+  if (separator <= 0) return undefined
+  const digits = name.slice(0, separator)
+  if (!/^\d+$/.test(digits)) return undefined
+  const parsed = Number(digits)
+  return Number.isSafeInteger(parsed) ? parsed : undefined
+}
+
+/**
  * The directory owned by one session and available for future session-local
  * artifacts.
  * @param root - the backend's session root directory.

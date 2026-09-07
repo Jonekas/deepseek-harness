@@ -276,6 +276,35 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * Drop every registry trace of one session: its workspace accounting slot
+   * and its archive-set membership. Intended for a session whose stored log is
+   * being deleted, so the accounting that a restore would otherwise rely on is
+   * deliberately discarded rather than retained.
+   *
+   * Unlike archiving, this never consults persistence: the caller is removing
+   * the session, so a listing that no longer names it is expected rather than
+   * a fault. An unaccounted, unarchived session writes nothing.
+   * @param sessionId - the session to forget.
+   * @returns resolution after durability.
+   */
+  forgetSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      // The account lives on the owning workspace record while the archive set
+      // is registry-global, so a session may hold either, both, or neither.
+      for (const entity of this.entities.values()) {
+        if (!entity.sessionIds.includes(sessionId)) continue
+        await entity.detachSession(sessionId)
+      }
+      const state = this.requireState()
+      if (!state.archivedSessionIds.includes(sessionId)) return
+      await this.setState({
+        ...state,
+        archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+      })
+    })
+  }
+
+  /**
    * Whether a session is live, header-indexed, or present in a fresh
    * persistence listing. Only a definite miss returns false — a failing
    * `sessionPersistence.list()` propagates so storage faults never

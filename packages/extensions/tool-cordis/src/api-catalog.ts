@@ -1519,6 +1519,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the new Session identity.',
       },
       {
+        signature: '@Remote(\'delete\') delete(request: SessionDeleteRequest): Promise<SessionDeleteValue>',
+        description: 'Delete one Session and every subagent descendant it owns.',
+        parameters: [{ name: 'request', description: 'the Session to delete.' }],
+        returns: 'every deleted Session id, the requested Session first.',
+      },
+      {
         signature: '@Remote(\'prompt\') prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>',
         description: 'Admit one prompt after explicitly resuming its Session.',
         parameters: [{ name: 'request', description: 'Session identity, prompt content, source metadata, and delivery mode.' }, { name: 'signal', description: 'caller cancellation before prompt admission begins.' }],
@@ -1625,6 +1631,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'List every stored session visible to this process, in no promised order.',
         parameters: [{ name: 'options', description: 'optional cancellation.' }],
         returns: 'one snapshot per stored session.',
+      },
+      {
+        signature: 'abstract delete(id: SessionId, options?: SessionPersistenceDeleteOptions): Promise<boolean>',
+        description: 'Remove one stored session: afterwards `stat` reports it absent, `list` omits it, and `open` raises SessionPersistenceNotFoundError.\n\nRemoval touches exactly the named session. A fork child stores its own copy of the events it inherited, so deleting either side of a fork leaves the other complete; lineage on a surviving header may then name a session that no longer exists, which readers already tolerate.\n\nA backend MAY retain the removed bytes outside the addressable set for operator recovery. Retention is invisible to every other operation on this service and carries no promised lifetime, so callers must treat a resolved delete as permanent.',
+        parameters: [{ name: 'id', description: 'the stored session to remove.' }, { name: 'options', description: 'optional cancellation.' }],
+        returns: '`true` when a stored session was removed, `false` when none existed.',
+        throws: ['{SessionAlreadyOwnedError} when a write handle for the session is active on this service; close it before deleting.'],
       },
     ],
   },
@@ -3016,6 +3029,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'restoreSession(sessionId: SessionId): Promise<void>',
         description: 'Remove one session from the archive set durably, restoring the position its retained workspace accounting already describes. Membership in the set is the only precondition: an id archived earlier was known then, so no session lookup runs here and an id outside the set resolves without writing.',
         parameters: [{ name: 'sessionId', description: 'The session to restore.' }],
+        returns: 'resolution after durability.',
+      },
+      {
+        signature: 'forgetSession(sessionId: SessionId): Promise<void>',
+        description: 'Drop every registry trace of one session: its workspace accounting slot and its archive-set membership. Intended for a session whose stored log is being deleted, so the accounting that a restore would otherwise rely on is deliberately discarded rather than retained.\n\nUnlike archiving, this never consults persistence: the caller is removing the session, so a listing that no longer names it is expected rather than a fault. An unaccounted, unarchived session writes nothing.',
+        parameters: [{ name: 'sessionId', description: 'the session to forget.' }],
         returns: 'resolution after durability.',
       },
       {
@@ -5107,6 +5126,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionCreateValue {\n    readonly sessionId: SessionId;\n    readonly agentPreset?: string;\n}',
   },
   {
+    name: 'SessionDeleteRequest',
+    declaration: 'export interface SessionDeleteRequest {\n    readonly sessionId: SessionId;\n}',
+  },
+  {
+    name: 'SessionDeleteValue',
+    declaration: 'export interface SessionDeleteValue {\n    readonly deleted: readonly SessionId[];\n}',
+  },
+  {
     name: 'SessionEvent',
     declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: SessionSeq;\n        time: number;\n        data: SessionEventMap[K];\n        ignorable?: true;\n    } & (K extends SurfaceEventType ? SurfaceIntent<K> : {\n        surfaceOp?: never;\n        sourceEventSeqs?: never;\n    });\n}[T];',
   },
@@ -5301,6 +5328,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionPersistenceCreateOptions',
     declaration: 'export interface SessionPersistenceCreateOptions {\n    readonly signal?: AbortSignal;\n    readonly inheritedEventCount?: SessionLogOffset;\n}',
+  },
+  {
+    name: 'SessionPersistenceDeleteOptions',
+    declaration: 'export interface SessionPersistenceDeleteOptions {\n    readonly signal?: AbortSignal;\n}',
   },
   {
     name: 'SessionPersistenceListOptions',

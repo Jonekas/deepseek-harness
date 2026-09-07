@@ -7,7 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { scheduler } from 'node:timers/promises'
 import { SESSION_FORMAT_VERSION, SessionLogOffset, SessionSeq, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
-import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { SessionAlreadyOwnedError, type SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import {
   assertNoRetiredHeaderFields, encodeSegment, eventLines, generationLogFilename, generationLogPath,
@@ -504,6 +504,125 @@ describe('JsonlSessionPersistence: format helpers', () => {
     await writeLog(ctx.sessionPersistence, m, oneTurnLog())
     expect((await stat(rawLogPath(resolve(absoluteRoot), '/work', m.id))).isFile()).toBe(true)
     await fiber.dispose()
+  })
+})
+
+describe('JsonlSessionPersistence: delete', () => {
+  let ctx: Context
+  beforeEach(async () => {
+    root = await freshRoot()
+    ctx = new Context()
+    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+  })
+  afterEach(async () => { await ctx.fiber.dispose() })
+
+  // A session materializes on its first append, so every fixture here carries
+  // a real log; an empty one would never reach disk to be deleted.
+  it('removes one session from stat, list, and open, and reports an unknown id', async () => {
+    const kept = meta('kept', '/work')
+    const gone = meta('gone', '/work')
+    await writeLog(ctx.sessionPersistence, kept, oneTurnLog())
+    await writeLog(ctx.sessionPersistence, gone, oneTurnLog())
+
+    await expect(ctx.sessionPersistence.delete(gone.id)).resolves.toBe(true)
+    expect(await ctx.sessionPersistence.stat(gone.id)).toBeUndefined()
+    expect((await ctx.sessionPersistence.list()).map(s => s.header.id)).toEqual([kept.id])
+    await expect(ctx.sessionPersistence.open(gone.id, 'read')).rejects.toThrow(/not found|does not exist/i)
+
+    // Absence is a report, not a failure: a caller racing two deletes learns
+    // which one removed the session.
+    await expect(ctx.sessionPersistence.delete(gone.id)).resolves.toBe(false)
+    await expect(ctx.sessionPersistence.delete(SessionId('never-existed'))).resolves.toBe(false)
+  })
+
+  it('leaves a fork child complete after its parent is deleted', async () => {
+    // The property that makes deletion safe to offer at all: a fork copies the
+    // events it inherited into its own log, so no session's readability
+    // depends on another session's artifact surviving.
+    const parent = meta('fork-parent', '/work')
+    const full = oneTurnLog()
+    const inherited = full.slice(0, 2)
+    await writeLog(ctx.sessionPersistence, parent, full)
+
+    const child: SessionHeader = {
+      ...meta('fork-child', '/work'), parentSession: parent.id, isSeeded: true,
+    }
+    const childEvents: SessionEvent[] = [
+      ...inherited,
+      { type: 'session/end-seed', seq: SessionSeq(inherited.length), time: 9, data: { inherited: true } } as unknown as SessionEvent,
+    ]
+    const childHandle = await ctx.sessionPersistence.create(child, {
+      inheritedEventCount: SessionLogOffset(inherited.length),
+    })
+    try {
+      await childHandle.append(childEvents)
+    } finally {
+      await childHandle.close()
+    }
+
+    await expect(ctx.sessionPersistence.delete(parent.id)).resolves.toBe(true)
+
+    const read = await readAll(ctx.sessionPersistence, child.id)
+    // The inherited prefix lives in the child's own artifact, so it survives.
+    expect(read.events).toHaveLength(childEvents.length)
+    // The surviving header still names a parent that no longer exists.
+    expect(read.meta.parentSession).toBe(parent.id)
+  })
+
+  it('refuses a session an open write handle owns, leaving it addressable', async () => {
+    const held = meta('held', '/work')
+    const handle = await ctx.sessionPersistence.create(held)
+    try {
+      await handle.append(oneTurnLog())
+      await handle.flush()
+      await expect(ctx.sessionPersistence.delete(held.id)).rejects.toThrow(SessionAlreadyOwnedError)
+      expect(await ctx.sessionPersistence.stat(held.id)).toBeDefined()
+    } finally {
+      await handle.close()
+    }
+    // The claim is released with the handle, so the delete then succeeds.
+    await expect(ctx.sessionPersistence.delete(held.id)).resolves.toBe(true)
+  })
+
+  it('retains the removed bytes under _trash without listing them as a project', async () => {
+    const gone = meta('retained', '/work')
+    await writeLog(ctx.sessionPersistence, gone, oneTurnLog())
+    await ctx.sessionPersistence.delete(gone.id)
+
+    const retained = await readdir(join(root, '_trash'))
+    expect(retained).toHaveLength(1)
+    // The retained copy keeps the session's whole directory, so an operator
+    // can move it back by hand.
+    expect((await readdir(join(root, '_trash', retained[0] as string))).length).toBeGreaterThan(0)
+    // A trash entry must never be mistaken for a project directory.
+    expect(await ctx.sessionPersistence.list()).toEqual([])
+  })
+
+  it('purges retentions past the configured window and leaves younger and unparseable ones', async () => {
+    const local = new Context()
+    await local.plugin(JsonlSessionPersistence, { root, compression: 'none', trashRetentionDays: 1 })
+    try {
+      const trash = join(root, '_trash')
+      await mkdir(trash, { recursive: true })
+      const old = String(Date.now() - 5 * 86_400_000).padStart(14, '0') + '-expired'
+      const young = String(Date.now()).padStart(14, '0') + '-recent'
+      for (const name of [old, young, 'hand-made-copy']) {
+        await mkdir(join(trash, name), { recursive: true })
+      }
+      // Purging rides a delete rather than a timer, so any delete does it.
+      const trigger = meta('purge-trigger', '/work')
+      await writeLog(local.sessionPersistence, trigger, oneTurnLog())
+      await local.sessionPersistence.delete(trigger.id)
+
+      const remaining = await readdir(trash)
+      expect(remaining).not.toContain(old)
+      expect(remaining).toContain(young)
+      // An operator's own directory name carries no age this build can read,
+      // so it is never reclaimed.
+      expect(remaining).toContain('hand-made-copy')
+    } finally {
+      await local.fiber.dispose()
+    }
   })
 })
 

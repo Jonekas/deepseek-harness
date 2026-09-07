@@ -408,6 +408,27 @@ abstract stat(id: SessionId, options?: SessionPersistenceStatOptions): Promise<S
  * @returns one snapshot per stored session.
  */
 abstract list(options?: SessionPersistenceListOptions): Promise<readonly SessionPersistenceSnapshot[]>
+
+/**
+ * Remove one stored session: afterwards `stat` reports it absent, `list`
+ * omits it, and `open` raises {@link SessionPersistenceNotFoundError}.
+ *
+ * Removal touches exactly the named session. A fork child stores its own
+ * copy of the events it inherited, so deleting either side of a fork leaves
+ * the other complete; lineage on a surviving header may then name a session
+ * that no longer exists, which readers already tolerate.
+ *
+ * A backend MAY retain the removed bytes outside the addressable set for
+ * operator recovery. Retention is invisible to every other operation on this
+ * service and carries no promised lifetime, so callers must treat a resolved
+ * delete as permanent.
+ * @param id - the stored session to remove.
+ * @param options - optional cancellation.
+ * @returns `true` when a stored session was removed, `false` when none existed.
+ * @throws {SessionAlreadyOwnedError} when a write handle for the session is
+ *   active on this service; close it before deleting.
+ */
+abstract delete(id: SessionId, options?: SessionPersistenceDeleteOptions): Promise<boolean>
 ```
 
 Types: [SessionId](core.md)

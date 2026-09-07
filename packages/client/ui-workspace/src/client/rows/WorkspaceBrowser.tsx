@@ -264,6 +264,8 @@ type SessionTreeProps = Pick<
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
   onSessionArchive: (sessionId: SessionNode['id']) => void
+  /** Open the browser-owned delete confirmation for a session. */
+  onSessionDeleteRequest: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Session order behavior: fixed after edits, or additionally promoted by user activity. */
   orderBy: SessionOrderBy
   /** One Session chosen from search that must be exposed and scrolled into view. */
@@ -278,7 +280,7 @@ type SessionTreeProps = Pick<
 function SessionTree({
   useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds,
   workspaceReady, usePanelInfo,
-  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
+  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, onSessionDeleteRequest,
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
   sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t,
@@ -590,6 +592,7 @@ function SessionTree({
                     onRename={onSessionRename}
                     onFork={forkSession}
                     onArchive={onSessionArchive}
+                    onDelete={onSessionDeleteRequest}
                     onReveal={node.id === revealSessionId && group.key === revealGroup
                       ? () => { onSessionRevealed(node.id) }
                       : undefined}
@@ -623,6 +626,7 @@ function SessionTree({
 /** The flat "In one list" body: every session is one draggable top-level row. */
 function FlatList({
   useSessions, useSessionPendingInteraction, open, forkSession, onSessionRename, onSessionArchive,
+  onSessionDeleteRequest,
   archivedSessionIds, usePanelInfo,
   orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder,
   revealSessionId, onSessionRevealed, settled, t,
@@ -634,6 +638,7 @@ function FlatList({
   | 'forkSession'
   | 'onSessionRename'
   | 'onSessionArchive'
+  | 'onSessionDeleteRequest'
   | 'archivedSessionIds'
   | 'usePanelInfo'
   | 'orderBy'
@@ -719,6 +724,7 @@ function FlatList({
               onRename={onSessionRename}
               onFork={forkSession}
               onArchive={onSessionArchive}
+              onDelete={onSessionDeleteRequest}
               onReveal={node.id === revealSessionId
                 ? () => { onSessionRevealed(node.id) }
                 : undefined}
@@ -852,6 +858,8 @@ type SettledSectionProps = Pick<
   onToggle: () => void
   /** Unsettle a Session by id. */
   onSessionRestore: (sessionId: SessionNode['id']) => void
+  /** Open the browser-owned delete confirmation for a settled Session. */
+  onSessionDelete: (sessionId: SessionNode['id'], currentTitle: string) => void
 }
 
 /**
@@ -864,7 +872,7 @@ type SettledSectionProps = Pick<
  */
 function SettledSection({
   useSessions, useSessionPendingInteraction, archivedSessionIds, expanded, onToggle,
-  open, forkSession, onSessionRename, onSessionRestore, t,
+  open, forkSession, onSessionRename, onSessionRestore, onSessionDelete, t,
 }: SettledSectionProps) {
   const list = useSessions(s => s)
   const pendingInteractions = useSessionPendingInteraction(s => s)
@@ -902,6 +910,7 @@ function SettledSection({
               onRename={onSessionRename}
               onFork={forkSession}
               onArchive={onSessionRestore}
+              onDelete={onSessionDelete}
               onRestore={onSessionRestore}
               settled
               flat
@@ -937,6 +946,7 @@ export function WorkspaceBrowser({
   insertWorkspaceBefore,
   archiveSession,
   restoreSession,
+  deleteSession,
   insertSessionBefore,
   createWorkspace,
   searchSessions,
@@ -1178,6 +1188,43 @@ export function WorkspaceBrowser({
     })
   }
 
+  // Deleting discards the log, so unlike every other row verb it is
+  // destructive and confirms first. The dialog lives here rather than on the
+  // row so a successful delete can unmount that row without tearing down the
+  // in-flight confirmation state — the same split the Workspace delete uses.
+  const [sessionDeleteTarget, setSessionDeleteTarget] =
+    useState<{ sessionId: SessionNode['id']; title: string } | null>(null)
+  const [sessionDeleting, setSessionDeleting] = useState(false)
+  const [sessionDeleteError, setSessionDeleteError] = useState<string | null>(null)
+  const openSessionDelete = (sessionId: SessionNode['id'], currentTitle: string) => {
+    setSessionDeleteTarget({ sessionId, title: currentTitle })
+    setSessionDeleteError(null)
+  }
+  const closeSessionDelete = () => {
+    if (sessionDeleting) return
+    setSessionDeleteTarget(null)
+    setSessionDeleteError(null)
+  }
+  const confirmSessionDelete = () => {
+    if (sessionDeleteTarget === null || sessionDeleting) return
+    const { sessionId } = sessionDeleteTarget
+    setSessionDeleting(true)
+    setSessionDeleteError(null)
+    deleteSession(sessionId).then(
+      () => {
+        setSessionDeleting(false)
+        setSessionDeleteTarget(null)
+      },
+      (reason: unknown) => {
+        // A refusal is the common case (a running session or descendant), so
+        // it stays on the dialog where the user can act on it, unlike the
+        // console-only diagnostics the non-destructive verbs use.
+        setSessionDeleting(false)
+        setSessionDeleteError(reason instanceof Error ? reason.message : String(reason))
+      },
+    )
+  }
+
   // Both list bodies render the section as their last child; search replaces
   // the list wholesale and excludes settled rows, so it renders none.
   const settled: SettledSectionProps = {
@@ -1192,6 +1239,7 @@ export function WorkspaceBrowser({
     forkSession,
     onSessionRename,
     onSessionRestore,
+    onSessionDelete: openSessionDelete,
     t,
   }
 
@@ -1386,6 +1434,7 @@ export function WorkspaceBrowser({
                 useSessions={useSessions} useSessionPendingInteraction={useSessionPendingInteraction}
                 open={open} forkSession={forkSession}
                 onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+                onSessionDeleteRequest={openSessionDelete}
                 archivedSessionIds={archivedSessionIds}
                 orderBy={orderBy}
                 sessionOrderByAccount={sessionOrderByAccount}
@@ -1405,6 +1454,7 @@ export function WorkspaceBrowser({
                 useSessionPendingInteraction={useSessionPendingInteraction}
                 onSessionRename={onSessionRename}
                 onSessionArchive={onSessionArchive}
+                onSessionDeleteRequest={openSessionDelete}
                 forkSession={forkSession}
                 workspaces={workspaces}
                 workspaceReady={workspacePhase === 'ready' && workspaceStreamState !== 'loading'}
@@ -1504,6 +1554,36 @@ export function WorkspaceBrowser({
         />
         {sessionRenameError !== null && <div className={css.renameError} role="alert">{sessionRenameError}</div>}
       </Modal>
+      <Modal
+        open={sessionDeleteTarget !== null}
+        onClose={closeSessionDelete}
+        closeLabel={t('close')}
+        title={t('delete.session.title')}
+        {...sessionDeleteTarget === null
+          ? {}
+          : { description: t('delete.session.desc', { name: sessionDeleteTarget.title }) }}
+        footer={(
+          <>
+            <Button variant="outline" disabled={sessionDeleting} onClick={closeSessionDelete}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="outline"
+              className={css.deleteAction}
+              disabled={sessionDeleting}
+              onClick={confirmSessionDelete}
+            >
+              {t('delete.session.confirm')}
+            </Button>
+          </>
+        )}
+      >
+        {sessionDeleting && <div className={css.deleteStatus} role="status">{t('delete.session.pending')}</div>}
+        {sessionDeleteError !== null && (
+          <div className={css.renameError} role="alert">{sessionDeleteError}</div>
+        )}
+      </Modal>
+
       <Modal
         open={deleteTarget !== null}
         onClose={closeDelete}

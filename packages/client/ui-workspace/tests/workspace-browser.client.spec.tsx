@@ -94,6 +94,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
     restoreSession: vi.fn(async () => {}),
+    deleteSession: vi.fn(async (sessionId: SessionId): Promise<readonly SessionId[]> => [sessionId]),
     insertWorkspaceBefore: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
@@ -510,6 +511,69 @@ describe('WorkspaceBrowser', () => {
     rerender(b, { useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'rest-s'])])) })
     expect(screen.queryByRole('button', { name: /已搁置/ })).toBeNull()
     expect(screen.getByText('rest-s')).toBeTruthy()
+  })
+
+  it('deletes a session only after the confirmation, and reports a refusal on the dialog', async () => {
+    const deleteSession = vi.fn(async (sessionId: SessionId): Promise<readonly SessionId[]> => [sessionId])
+    mount({
+      useSessions: hook(sessionState([summary('doomed-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['doomed-s'])])),
+      deleteSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+
+    // Opening the menu and choosing Delete must not delete anything yet.
+    fireEvent.click(screen.getByRole('button', { name: '会话“doomed-s”的操作' }))
+    const item = screen.getByRole('menuitem', { name: '删除会话' })
+    // Destructive verbs carry the danger treatment the settle rows must not.
+    expect(item.className).toMatch(/danger/)
+    fireEvent.click(item)
+    expect(deleteSession).not.toHaveBeenCalled()
+
+    // Dismissing the dialog is also not a delete.
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(deleteSession).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '会话“doomed-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除会话' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    expect(deleteSession).toHaveBeenCalledWith(sid('doomed-s'))
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+  })
+
+  it('keeps the delete dialog open and shows why when the host refuses', async () => {
+    const deleteSession = vi.fn(async (): Promise<readonly SessionId[]> => {
+      throw new Error('session "doomed-s" is running; cancel it before deleting')
+    })
+    mount({
+      useSessions: hook(sessionState([summary('doomed-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['doomed-s'])])),
+      deleteSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“doomed-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除会话' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    // A refusal is actionable, so it stays on the dialog rather than becoming
+    // a console-only diagnostic like the non-destructive verbs use.
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('is running')
+    })
+    expect(screen.getByText('doomed-s')).toBeTruthy()
+  })
+
+  it('refuses to offer delete or settle while a session is working', () => {
+    mount({
+      useSessions: hook(sessionState([{ ...summary('busy-s', 1), running: true }])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['busy-s'])])),
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“busy-s”的操作' }))
+    // Deleting a running session would pull storage out from under a live
+    // writer, so the row offers neither destructive verb until it settles.
+    expect(screen.getByRole('menuitem', { name: '删除会话' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('menuitem', { name: '搁置会话' }).hasAttribute('disabled')).toBe(true)
   })
 
   it('logs and keeps the section when the restore call rejects', async () => {

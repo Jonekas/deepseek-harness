@@ -700,6 +700,64 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
+  // Last scenario in the file on purpose: it destroys the shared seeded row,
+  // so nothing after it may depend on that row existing.
+  it('deletes the seeded session from its row menu after confirming, and takes its log off disk', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-delete'))
+    const header = (await scaffold.ctx.sessionPersistence.list())
+      .find(snapshot => snapshot.header.id === SessionId(SEED_ID))?.header
+    if (header === undefined) throw new Error('seeded Session log disappeared before deletion')
+    const artifact = logPath(scaffold.persistenceRoot, header.cwd, header.id, 'zstd')
+    expect((await stat(artifact)).isFile()).toBe(true)
+
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+
+    // The seeded row is the one carrying a session actions button; the same
+    // anchor the settle scenario uses, and it asserts singularity loudly.
+    const rows = page.locator('[role="treeitem"]')
+      .filter({ has: page.locator('button[aria-label^="Session actions for "]') })
+    await expect.poll(() => rows.count(), { timeout: 15_000 }).toBeGreaterThan(0)
+    const row = rows.first()
+    const rowTitle = await row.locator('[class*="title"]').innerText()
+
+    // Choosing Delete opens the confirmation and commits nothing yet.
+    await clickHoverAction(row, `Session actions for ${rowTitle}`)
+    await page.getByRole('menuitem', { name: 'Delete session' }).click()
+    await expect.poll(
+      () => page.getByRole('button', { name: 'Cancel' }).count(),
+      { timeout: 10_000 },
+    ).toBe(1)
+    expect((await stat(artifact)).isFile()).toBe(true)
+
+    await page.getByRole('button', { name: 'Delete', exact: true }).click()
+    // A refusal stays on the dialog by design; surface it as the failure
+    // rather than letting the disk poll time out with no reason.
+    await page.waitForTimeout(1_000)
+    const refusal = page.getByRole('alert')
+    if (await refusal.count() > 0) {
+      throw new Error(`delete refused: ${await refusal.first().innerText()}`)
+    }
+    // The artifact leaves its addressable path and persistence stops listing
+    // it: deletion is durable, not a view filter.
+    await expect.poll(async () => {
+      try {
+        await stat(artifact)
+        return true
+      } catch {
+        return false
+      }
+    }, { timeout: 15_000 }).toBe(false)
+    await expect.poll(
+      async () => (await scaffold.ctx.sessionPersistence.list())
+        .some(snapshot => snapshot.header.id === SessionId(SEED_ID)),
+      { timeout: 15_000 },
+    ).toBe(false)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 120_000)
+
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     expect(tripwire.warnings).toEqual([])
     // The directory-browser aria golden is this spec's one owned artifact;

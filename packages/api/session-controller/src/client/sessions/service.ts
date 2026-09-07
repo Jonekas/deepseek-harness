@@ -452,6 +452,17 @@ export class ClientSessions implements ISessions {
     return childId
   }
 
+  async delete(sessionId: SessionId): Promise<readonly SessionId[]> {
+    const result = await this.manager.deleteSession(sessionId)
+    if (!result.ok) {
+      throw new Error(`session delete failed: ${result.error.code}: ${result.error.message}`)
+    }
+    // The Host's removal events drive the rows out; projecting here keeps the
+    // caller's next read consistent with them rather than a frame behind.
+    this.projectList()
+    return result.value.deleted
+  }
+
   /**
    * Resolve an Agent-scoped context view (use-and-discard).
    * @param id - session id (the agent identity — 1:1 same axis).

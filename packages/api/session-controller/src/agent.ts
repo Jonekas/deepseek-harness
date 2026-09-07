@@ -4,7 +4,8 @@ import { mkdir } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type {
-  Agent, AgentOptions, AgentSetup, ModelSelection as AgentModelSelection, ModelSelectionRef,
+  Agent, AgentHandle, AgentOptions, AgentSetup,
+  ModelSelection as AgentModelSelection, ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-agent-presets'
@@ -142,6 +143,14 @@ export class ApiSessionAgentController {
   private readonly creations = new Map<SessionId, Promise<Agent>>()
   private readonly selections = new WeakMap<Agent, InstalledSelection>()
   private readonly imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
+  /**
+   * Teardown capabilities for the Agents this controller brought up. Every
+   * `create`/`resume` here yields one, and only its holder can tear that Agent
+   * down, so discarding them would leave a browser-opened Session live for the
+   * process's whole life with no way to release it. {@link releaseSession}
+   * is the one consumer.
+   */
+  private readonly handles = new Map<SessionId, AgentHandle>()
 
   /** @param ctx - Host context carrying Agent, model, persistence, and Typert services. */
   constructor(private readonly ctx: Context) {
@@ -427,11 +436,41 @@ export class ApiSessionAgentController {
     if (published !== undefined && hasApiSessionSubagentOwner(this.ctx, published, live)) {
       throw new ApiSessionSubagentOwnership(sessionId)
     }
-    return (await this.ctx.agents.resume({
+    return this.retainHandle(sessionId, await this.ctx.agents.resume({
       resumeSessionId: sessionId,
       agentOptions: this.agentOptions(),
       setup: composition.setup,
-    })).agent
+    }))
+  }
+
+  /**
+   * Keep one Agent's teardown capability and return its Agent.
+   * @param sessionId - Session the handle belongs to.
+   * @param handle - the owned Agent and its disposer.
+   * @returns the handle's Agent.
+   */
+  private retainHandle(sessionId: SessionId, handle: AgentHandle): Agent {
+    this.handles.set(sessionId, handle)
+    return handle.agent
+  }
+
+  /**
+   * Tear down one Agent this controller owns, releasing its Session from the
+   * live store so storage that Session holds open can be removed. An Agent
+   * this controller never created (a Session live under another owner, or
+   * already released) is a no-op: the caller's goal is that it not be live.
+   * @param sessionId - Session to release.
+   * @returns resolution once the Agent's teardown completes.
+   */
+  async releaseSession(sessionId: SessionId): Promise<void> {
+    const handle = this.handles.get(sessionId)
+    if (handle === undefined) return
+    this.handles.delete(sessionId)
+    // In-flight adoption promises for this id would hand out an Agent whose
+    // world is unwinding; drop them with the handle.
+    this.creations.delete(sessionId)
+    this.resumes.delete(sessionId)
+    await handle.dispose()
   }
 
   private async createOrAdopt(
@@ -459,11 +498,11 @@ export class ApiSessionAgentController {
         const storedPreset = this.presetForObservation(observation)
         this.assertPresetUnchanged(sessionId, presetId, storedPreset)
         const composition = await this.composeAgent(storedPreset)
-        return (await this.ctx.agents.resume({
+        return this.retainHandle(sessionId, await this.ctx.agents.resume({
           resumeSessionId: sessionId,
           agentOptions: this.agentOptions(),
           setup: composition.setup,
-        })).agent
+        }))
       } catch (error: unknown) {
         if (!(error instanceof SessionQueryError)
           || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error
@@ -476,7 +515,7 @@ export class ApiSessionAgentController {
       throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
     }
     const composition = await this.composeAgent(presetId)
-    return (await this.ctx.agents.create({
+    return this.retainHandle(sessionId, await this.ctx.agents.create({
       sessionId,
       agentOptions: this.agentOptions(),
       meta: {
@@ -484,7 +523,7 @@ export class ApiSessionAgentController {
         ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }),
       },
       setup: composition.setup,
-    })).agent
+    }))
   }
 
   private agentOptions(): AgentOptions {

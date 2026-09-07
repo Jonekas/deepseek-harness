@@ -34,6 +34,8 @@ import type {
   SessionCreateRequest,
   SessionCreateValue,
   SessionFollowFrame,
+  SessionDeleteRequest,
+  SessionDeleteValue,
   SessionFollowRequest,
   SessionForkRequest,
   SessionForkValue,
@@ -92,6 +94,9 @@ export class SessionController extends TypertRemoteService {
     'fileUploads',
     'llm',
     'sessions',
+    // Deleting a Session removes its stored log, which is the one operation
+    // here that addresses persistence directly rather than through an Agent.
+    'sessionPersistence',
     'sessionProjections',
     'sessionQuery',
     'typert',
@@ -334,6 +339,16 @@ export class SessionController extends TypertRemoteService {
   @Remote('fork')
   fork(request: SessionForkRequest): Promise<SessionForkValue> {
     return this.commands.fork(request)
+  }
+
+  /**
+   * Delete one Session and every subagent descendant it owns.
+   * @param request - the Session to delete.
+   * @returns every deleted Session id, the requested Session first.
+   */
+  @Remote('delete')
+  delete(request: SessionDeleteRequest): Promise<SessionDeleteValue> {
+    return this.commands.delete(request)
   }
 
   /**

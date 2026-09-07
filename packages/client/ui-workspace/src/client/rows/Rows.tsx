@@ -371,6 +371,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @param props.onFork - fork a session at its last completed turn.
  * @param props.onArchive - settle a session by id.
  * @param props.onRestore - unsettle a session by id; required on settled rows.
+ * @param props.onDelete - open the delete confirmation for a session.
  * @param props.onReveal - scroll this row into view after search navigation, then acknowledge it.
  * @param props.drag - optional draggable-row wiring.
  * @param props.flat - omit the empty status slot in the hierarchy-free flat list.
@@ -379,7 +380,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @returns the session row.
  */
 export function SessionNodeItem({
-  node, currentId, now, onOpen, onRename, onFork, onArchive, onRestore, onReveal, drag,
+  node, currentId, now, onOpen, onRename, onFork, onArchive, onRestore, onDelete, onReveal, drag,
   flat = false, settled = false, t,
 }: {
   node: SessionNode
@@ -394,6 +395,8 @@ export function SessionNodeItem({
   onArchive: (id: SessionNode['id']) => void
   /** Unsettle this session (row menu action on settled rows; commits without a dialog). */
   onRestore?: ((id: SessionNode['id']) => void) | undefined
+  /** Open the browser-owned delete confirmation (id + current title). */
+  onDelete: (id: SessionNode['id'], currentTitle: string) => void
   /** Scroll this row into view after search navigation, then acknowledge it. */
   onReveal?: (() => void) | undefined
   /** Present only on draggable rows (workspace-group sessions outside search). */
@@ -436,6 +439,16 @@ export function SessionNodeItem({
         icon: <IconArchiveOutline20 size={16} />,
         disabled: busy,
       },
+    // Deleting discards the stored log itself, so unlike settling it reads as
+    // destructive and routes through the owner's confirmation dialog. It is
+    // refused while the session works, for the same reason settling is.
+    {
+      id: 'delete',
+      label: t('menu.deleteSession'),
+      icon: <IconTrashOutline16 />,
+      danger: true,
+      disabled: busy,
+    },
   ]
   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (
@@ -502,6 +515,7 @@ export function SessionNodeItem({
               if (id === 'fork') onFork(node.id)
               if (id === 'archive') onArchive(node.id)
               if (id === 'restore') onRestore?.(node.id)
+              if (id === 'delete') onDelete(node.id, row.title)
             }}
             portal
             closeOnPointerLeave
