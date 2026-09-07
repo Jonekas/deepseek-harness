@@ -93,6 +93,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
+    restoreSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
@@ -447,7 +448,7 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
   })
 
-  it('archives a session from the row menu and hides archived rows in both modes', async () => {
+  it('settles a session from the row menu and moves it to the Settled section in both modes', async () => {
     const archiveSession = vi.fn(async () => {})
     const b = mount({
       useSessions: hook(sessionState([summary('kept-s', 2), summary('gone-s', 1)])),
@@ -455,17 +456,86 @@ describe('WorkspaceBrowser', () => {
       archiveSession,
     })
     fireEvent.click(screen.getByText('alpha'))
+    // Nothing is settled yet, so the section is absent entirely.
+    expect(screen.queryByRole('button', { name: /已搁置/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '会话“gone-s”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '搁置会话' }))
     expect(archiveSession).toHaveBeenCalledWith(sid('gone-s'))
 
-    // The archive-set echo hides the row in grouped and flat modes.
+    // The archive-set echo takes the row out of the group and into the
+    // collapsed section, in grouped and flat modes alike.
     rerender(b, { useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'gone-s'])], [sid('gone-s')])) })
     expect(screen.queryByText('gone-s')).toBeNull()
+    const settledHeader = screen.getByRole('button', { name: /已搁置/ })
+    expect(settledHeader.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
     expect(screen.getByText('kept-s')).toBeTruthy()
     expect(screen.queryByText('gone-s')).toBeNull()
+    expect(screen.getByRole('button', { name: /已搁置/ })).toBeTruthy()
+  })
+
+  it('expands the Settled section, opens a settled row, and unsettles it', async () => {
+    const open = vi.fn()
+    const restoreSession = vi.fn(async () => {})
+    const b = mount({
+      useSessions: hook(sessionState([summary('kept-s', 2), summary('rest-s', 1)])),
+      useWorkspaces: hook(
+        workspaceState([workspace('alpha', ['kept-s', 'rest-s'])], [sid('rest-s')])),
+      open,
+      restoreSession,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /已搁置/ }))
+    // Expansion is persisted beside the Workspace groups.
+    expect(b.store.getSnapshot().groupExpansion.__settled__).toBe(true)
+    const settledRow = screen.getByText('rest-s')
+    fireEvent.click(settledRow)
+    expect(open).toHaveBeenCalledWith(sid('rest-s'))
+
+    fireEvent.click(screen.getByRole('button', { name: '会话“rest-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '取消搁置' }))
+    expect(restoreSession).toHaveBeenCalledWith(sid('rest-s'))
+
+    // The echo returns it to its Workspace group and drops the section.
+    rerender(b, { useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'rest-s'])])) })
+    expect(screen.queryByRole('button', { name: /已搁置/ })).toBeNull()
+    fireEvent.click(screen.getByText('alpha'))
+    expect(screen.getByText('rest-s')).toBeTruthy()
+  })
+
+  it('logs and keeps the section when the restore call rejects', async () => {
+    const rejection = new Error('restore exploded')
+    const restoreSession = vi.fn(async () => { throw rejection })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      mount({
+        useSessions: hook(sessionState([summary('rest-s', 1)])),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['rest-s'])], [sid('rest-s')])),
+        restoreSession,
+      })
+      fireEvent.click(screen.getByRole('button', { name: /已搁置/ }))
+      fireEvent.click(screen.getByRole('button', { name: '会话“rest-s”的操作' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: '取消搁置' }))
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(warn).toHaveBeenCalledWith('session restore rejected:', rejection)
+      expect(screen.getByText('rest-s')).toBeTruthy()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('keeps the Settled section out of search results', async () => {
+    mount({
+      useSessions: hook(sessionState([summary('kept-s', 2), summary('rest-s', 1)])),
+      useWorkspaces: hook(
+        workspaceState([workspace('alpha', ['kept-s', 'rest-s'])], [sid('rest-s')])),
+    })
+    expect(screen.getByRole('button', { name: /已搁置/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    fireEvent.change(screen.getByPlaceholderText('搜索会话…'), { target: { value: 'kept' } })
+    expect(screen.queryByRole('button', { name: /已搁置/ })).toBeNull()
   })
 
   it('logs and keeps the tree when the archive call rejects', async () => {
@@ -480,7 +550,7 @@ describe('WorkspaceBrowser', () => {
       })
       fireEvent.click(screen.getByText('alpha'))
       fireEvent.click(screen.getByRole('button', { name: '会话“alpha-s”的操作' }))
-      fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: '搁置会话' }))
       await Promise.resolve()
       await Promise.resolve()
       expect(warn).toHaveBeenCalledWith('session archive rejected:', rejection)

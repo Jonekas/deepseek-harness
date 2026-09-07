@@ -591,36 +591,61 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('archives the seeded session from its row menu, hiding it durably across reload', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-archive'))
-    const initialRow = await seededSessionRow()
-    // Selecting the seed hides any blank stray left by Workspace deletion,
-    // so archiving this last visible Ungrouped Session must remove the bucket.
-    await initialRow.click()
-    const { title } = await scaffold.ctx.sessionController.rename({
-      sessionId: SessionId(SEED_ID), title: `Archive target ${SEED_ID}`,
+  it('settles the seeded session into the Settled section durably, then unsettles it', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-settle'))
+    // The seeded session lives under Ungrouped (expanded by the hover-card
+    // test's gesture; converge again for order independence).
+    const ungroupedRow = page.getByText('Ungrouped', { exact: true }).locator('..').locator('..')
+    const ungroupedSection = ungroupedRow.locator('..')
+    await expect.poll(async () => {
+      if (await ungroupedRow.getAttribute('aria-expanded') !== 'true') {
+        await page.getByText('Ungrouped', { exact: true }).click()
+        await page.waitForTimeout(50)
+      }
+      return await ungroupedRow.getAttribute('aria-expanded')
+    }, { timeout: 5_000 }).toBe('true')
+    // Anchor on session rows (the rows carrying a session actions button),
+    // not a positional index, and assert the single-stray assumption loudly
+    // so a fixture gaining a second stray fails here instead of settling
+    // the wrong row. CSS attribute match, not getByRole: the button is
+    // display:none until its row hovers, and role queries skip hidden nodes.
+    const sessionRows = ungroupedSection.locator('[role="treeitem"]')
+      .filter({ has: page.locator('button[aria-label^="Session actions for "]') })
+    await expect.poll(() => sessionRows.count(), { timeout: 10_000 }).toBe(1)
+    await sessionRows.first().click()
+    // A user-owned title binds the locator to this seed across restoration,
+    // which the reload assertions below depend on.
+    const { title: rowTitle } = await scaffold.ctx.sessionController.rename({
+      sessionId: SessionId(SEED_ID), title: `Settle target ${SEED_ID}`,
     })
-    // A user-owned title binds the locator to this seed across restoration.
     const sessionRow = page.getByRole('treeitem').filter({
-      has: page.getByText(title, { exact: true }),
+      has: page.getByText(rowTitle, { exact: true }),
     })
     await expect.poll(() => sessionRow.count(), { timeout: 10_000 }).toBe(1)
     await expect.poll(() => sessionRow.getAttribute('aria-selected'), { timeout: 10_000 }).toBe('true')
-    const ungroupedSection = page.getByText('Ungrouped', { exact: true }).locator('..').locator('..').locator('..')
-    await expect.poll(() => ungroupedSection.locator('[role="treeitem"]').count(), { timeout: 10_000 }).toBe(2)
-    // Row menu: hover reveals the actions button; Archive session commits
-    // without a confirmation dialog (non-destructive: log + accounting stay).
-    await clickHoverAction(sessionRow, `Session actions for ${title}`)
-    await page.getByRole('menuitem', { name: 'Archive session' }).click()
-    // The row disappears on the archive-set echo; with no other visible
-    // stray, the whole Ungrouped bucket withdraws.
-    await expect.poll(() => sessionRow.count(), { timeout: 10_000 }).toBe(0)
+    // Row menu: hover reveals the actions button; Settle commits without a
+    // confirmation dialog (non-destructive: log + accounting stay).
+    await clickHoverAction(sessionRow, `Session actions for ${rowTitle}`)
+    await page.getByRole('menuitem', { name: 'Settle session' }).click()
+    // The row leaves the active list on the archive-set echo; with no other
+    // visible stray, the whole Ungrouped bucket withdraws.
+    await expect.poll(() => page.getByText(rowTitle, { exact: true }).count(), { timeout: 10_000 }).toBe(0)
     await expect.poll(() => page.getByText('Ungrouped', { exact: true }).count(), { timeout: 10_000 }).toBe(0)
     // Durable on the host: the registry-global set carries the id while the
     // session log itself stays in persistence untouched.
     expect([...scaffold.ctx.workspaceRegistry.archivedSessionIds]).toEqual([SessionId(SEED_ID)])
     expect((await scaffold.ctx.sessionPersistence.list()).map(snapshot => snapshot.header.id)).toContain(SessionId(SEED_ID))
-    // Reload: the hidden state is rebuilt from the workspace.list baseline.
+    // It went to the Settled section, which is collapsed by default.
+    const settledHeader = page.getByRole('button', { name: /^Settled/ })
+    await expect.poll(() => settledHeader.count(), { timeout: 10_000 }).toBe(1)
+    await settledHeader.click()
+    await expect.poll(() => page.getByText(rowTitle, { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    // Collapse again so the reload assertion reads the active list, not the
+    // browser-persisted expansion state.
+    await settledHeader.click()
+    await expect.poll(() => page.getByText(rowTitle, { exact: true }).count(), { timeout: 10_000 }).toBe(0)
+
+    // Reload: the settled state is rebuilt from the workspace.list baseline.
     const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -634,12 +659,25 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
         .evaluate(element => element === document.activeElement),
       { timeout: 15_000 },
     ).toBe(true)
-    // The archived row must not resurface (the Ungrouped bucket itself may
-    // reappear if selection restore lands on another stray — not this test's
-    // concern).
-    expect(await sessionRow.count()).toBe(0)
+    // The settled row must not resurface in the active list (the Ungrouped
+    // bucket itself may reappear if selection restore lands on another stray
+    // — not this test's concern).
+    expect(await page.getByText(rowTitle, { exact: true }).count()).toBe(0)
+    await expect.poll(() => page.getByRole('button', { name: /^Settled/ }).count(), { timeout: 15_000 }).toBe(1)
+
+    // Unsettle from the section: the id leaves the durable set and the row
+    // returns to the list it came from.
+    await page.getByRole('button', { name: /^Settled/ }).click()
+    const settledRow = page.locator('[role="treeitem"]').filter({ hasText: rowTitle }).first()
+    await clickHoverAction(settledRow, `Session actions for ${rowTitle}`)
+    await page.getByRole('menuitem', { name: 'Unsettle session' }).click()
+    await expect.poll(
+      () => [...scaffold.ctx.workspaceRegistry.archivedSessionIds].length,
+      { timeout: 10_000 },
+    ).toBe(0)
+    await expect.poll(() => page.getByRole('button', { name: /^Settled/ }).count(), { timeout: 10_000 }).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
-  }, 90_000)
+  }, 120_000)
 
   it('opens folders with identical basenames as distinct workspaces', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-duplicate-basename'))

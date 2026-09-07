@@ -104,6 +104,11 @@ export interface WorkspaceArchiveSessionRequest {
   readonly sessionId: SessionId
 }
 
+/** Session requested for return from the archive to its grouping surface. */
+export interface WorkspaceRestoreSessionRequest {
+  readonly sessionId: SessionId
+}
+
 /** Complete archived Session set after a mutation. */
 export interface WorkspaceArchiveValue {
   readonly archivedSessionIds: readonly SessionId[]

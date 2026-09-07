@@ -135,6 +135,14 @@ class FakeWorkspaces implements IWorkspaces {
     }))
   }
 
+  readonly restoreCalls: SessionId[] = []
+  onRestore: IWorkspaces['restoreSession'] = async (sessionId) => {
+    this.list.update(state => ({
+      ...state,
+      archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+    }))
+  }
+
   declare readonly create: IWorkspaces['create']
   declare readonly rename: IWorkspaces['rename']
   declare readonly delete: IWorkspaces['delete']
@@ -148,6 +156,11 @@ class FakeWorkspaces implements IWorkspaces {
   archiveSession(sessionId: SessionId): Promise<void> {
     this.archiveCalls.push(sessionId)
     return this.onArchive(sessionId)
+  }
+
+  restoreSession(sessionId: SessionId): Promise<void> {
+    this.restoreCalls.push(sessionId)
+    return this.onRestore(sessionId)
   }
 }
 
@@ -534,11 +547,86 @@ describe('UiWorkspaceService', () => {
     b.workspaces.list.update(state => ({ ...state, archivedSessionIds: [idle.id] }))
     expect(b.sessions.clear).toHaveBeenCalledTimes(2)
 
+    // A session already settled in the baseline keeps a selection restored
+    // onto it: settled sessions stay openable from the Settled section, so
+    // only the act of settling the open session clears it.
     const archived = bench({
       sessions: sessionState([current], current.id),
       workspaces: workspaceState([workspace('one', [current.id])], [current.id]),
     })
-    expect(archived.sessions.clear).toHaveBeenCalledOnce()
+    expect(archived.sessions.clear).not.toHaveBeenCalled()
+  })
+
+  it('keeps a settled session open when the operator opens it, until it is settled again', () => {
+    const settled = summary('settled')
+    const b = bench({
+      sessions: sessionState([settled]),
+      workspaces: workspaceState([workspace('one', [settled.id])], [settled.id]),
+    })
+
+    b.sessions.open(settled.id)
+    expect(b.sessions.clear).not.toHaveBeenCalled()
+
+    // Unsettling and settling it again is a fresh transition and clears.
+    b.workspaces.list.update(state => ({ ...state, archivedSessionIds: [] }))
+    b.workspaces.list.update(state => ({ ...state, archivedSessionIds: [settled.id] }))
+    expect(b.sessions.clear).toHaveBeenCalledOnce()
+  })
+
+  it('does not treat a late archive baseline as newly settled sessions', () => {
+    const current = summary('current')
+    const b = bench({
+      sessions: sessionState([current], current.id),
+      workspaces: workspaceState([workspace('one', [current.id])], [], 'pending'),
+    })
+
+    // The pending snapshot reports an empty set for lack of data; adopting it
+    // as the prior state would read the arriving baseline as a settle event.
+    b.workspaces.list.update(state => ({
+      ...state,
+      archivedSessionIds: [current.id],
+      phase: 'ready',
+      state: 'idle',
+    }))
+    expect(b.sessions.clear).not.toHaveBeenCalled()
+  })
+
+  it('unsettles a settled session when its durable activity advances', async () => {
+    const settled = summary('settled', { updatedAt: 100 })
+    const quiet = summary('quiet', { updatedAt: 100 })
+    const b = bench({
+      sessions: sessionState([settled, quiet]),
+      workspaces: workspaceState(
+        [workspace('one', [settled.id, quiet.id])], [settled.id, quiet.id]),
+    })
+    expect(b.workspaces.restoreCalls).toEqual([])
+
+    // A user-authored durable message moves the list projection's updatedAt.
+    b.sessions.list.update(state => ({
+      ...state,
+      byId: { ...state.byId, [settled.id]: { ...settled, updatedAt: 200 } },
+    }))
+    await flush()
+    expect(b.workspaces.restoreCalls).toEqual([settled.id])
+    expect(b.workspaces.list.getSnapshot().archivedSessionIds).toEqual([quiet.id])
+  })
+
+  it('reports a failed resume restore without disturbing the selection', async () => {
+    const settled = summary('settled', { updatedAt: 100 })
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const b = bench({
+      sessions: sessionState([settled]),
+      workspaces: workspaceState([workspace('one', [settled.id])], [settled.id]),
+    })
+    b.workspaces.onRestore = () => Promise.reject(new Error('restore rejected'))
+
+    b.sessions.list.update(state => ({
+      ...state,
+      byId: { ...state.byId, [settled.id]: { ...settled, updatedAt: 200 } },
+    }))
+    await flush()
+    expect(warning).toHaveBeenCalledWith('session restore on resume rejected:', expect.any(Error))
+    expect(b.sessions.clear).not.toHaveBeenCalled()
   })
 
   it('forwards archive commands and preserves failures', async () => {

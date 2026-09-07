@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCloseFill14, IconPersonalizationOutline16,
-  IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
+  IconProjectAddOutline16, IconSearchOutline16, IconTriangleRightFill14, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   SessionListState, SessionSearchResultItem,
@@ -23,10 +23,10 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { SessionNode, SessionOrderBy } from '../tree.ts'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, owningGroupKey, UNGROUPED_KEY,
+  deriveFlat, deriveGroups, deriveSearchResults, deriveSettled, owningGroupKey, UNGROUPED_KEY,
 } from '../tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
-import { FLAT_SESSION_ORDER_KEY } from '../stores.ts'
+import { FLAT_SESSION_ORDER_KEY, SETTLED_GROUP_KEY } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
@@ -832,6 +832,76 @@ function SearchResults({
 }
 
 /**
+ * The Settled section: sessions the user has set aside, collapsed by default
+ * under whichever list mode is showing. It sits below the scrolling list
+ * rather than inside it so the active list keeps the whole column and the
+ * section stays reachable at the bottom edge.
+ * @param props.expanded - persisted open state of the section.
+ * @param props.onToggle - persist the opposite open state.
+ * @param props.onSessionRestore - unsettle a session by id.
+ * @returns the section element, or null while nothing is settled.
+ */
+function SettledSection({
+  useSessions, useSessionPendingInteraction, archivedSessionIds, expanded, onToggle,
+  open, forkSession, onSessionRename, onSessionRestore, t,
+}: Pick<
+  SessionTreeProps,
+  'useSessions' | 'useSessionPendingInteraction' | 'open' | 'forkSession' | 'onSessionRename' | 't'
+> & {
+  archivedSessionIds: readonly SessionNode['id'][]
+  expanded: boolean
+  onToggle: () => void
+  onSessionRestore: (sessionId: SessionNode['id']) => void
+}) {
+  const list = useSessions(s => s)
+  const pendingInteractions = useSessionPendingInteraction(s => s)
+  const rows = useMemo(
+    () => deriveSettled(list, archivedSessionIds, pendingInteractions),
+    [list, archivedSessionIds, pendingInteractions],
+  )
+  const now = Date.now()
+  // An archive set whose sessions are all blank, subagent-born, or not yet
+  // listed derives no rows; the section stays absent rather than empty.
+  if (rows.length === 0) return null
+  return (
+    <div className={css.settledSection}>
+      <button
+        type="button"
+        className={css.settledHeader}
+        aria-expanded={expanded}
+        onClick={onToggle}
+      >
+        <IconTriangleRightFill14
+          className={clsx(css.settledArrow, expanded && css.settledArrowOpen)}
+        />
+        <span className={css.settledLabel}>{t('section.settled')}</span>
+        <span className={css.settledCount}>{rows.length}</span>
+      </button>
+      {expanded && (
+        <div className={css.settledList} role="tree" aria-label={t('section.settled')}>
+          {rows.map(node => (
+            <SessionNodeItem
+              key={node.id}
+              node={node}
+              currentId={list.current}
+              now={now}
+              onOpen={open}
+              onRename={onSessionRename}
+              onFork={forkSession}
+              onArchive={onSessionRestore}
+              onRestore={onSessionRestore}
+              settled
+              flat
+              t={t}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * Render the browsing region.
  * @param props - composed slot props (shell owner share + store + injected actions).
  * @returns the region element tree.
@@ -853,6 +923,7 @@ export function WorkspaceBrowser({
   deleteWorkspace,
   insertWorkspaceBefore,
   archiveSession,
+  restoreSession,
   insertSessionBefore,
   createWorkspace,
   searchSessions,
@@ -906,6 +977,7 @@ export function WorkspaceBrowser({
     actions.retainAccountKeys([
       UNGROUPED_KEY,
       FLAT_SESSION_ORDER_KEY,
+      SETTLED_GROUP_KEY,
       ...workspaces.map(workspace => workspace.workspaceId as string),
     ])
   }, [actions.retainAccountKeys, workspacePhase, workspaces])
@@ -1082,6 +1154,14 @@ export function WorkspaceBrowser({
   const onSessionArchive = (sessionId: SessionNode['id']) => {
     archiveSession(sessionId).catch((reason: unknown) => {
       console.warn('session archive rejected:', reason)
+    })
+  }
+
+  // Unsettling is the same dialog-free posture in reverse: the row leaves the
+  // Settled section when the archive-set echo lands.
+  const onSessionRestore = (sessionId: SessionNode['id']) => {
+    restoreSession(sessionId).catch((reason: unknown) => {
+      console.warn('session restore rejected:', reason)
     })
   }
 
@@ -1324,6 +1404,24 @@ export function WorkspaceBrowser({
                 }}
               />
             ))}
+        {/* Search replaces the list wholesale, and settled rows are excluded
+            from its results, so the section stays out of that mode. */}
+        {wide && normalizedQuery === '' && (
+          <SettledSection
+            useSessions={useSessions}
+            useSessionPendingInteraction={useSessionPendingInteraction}
+            archivedSessionIds={archivedSessionIds}
+            expanded={groupExpansion[SETTLED_GROUP_KEY] === true}
+            onToggle={() => {
+              actions.setGroupExpanded(SETTLED_GROUP_KEY, groupExpansion[SETTLED_GROUP_KEY] !== true)
+            }}
+            open={open}
+            forkSession={forkSession}
+            onSessionRename={onSessionRename}
+            onSessionRestore={onSessionRestore}
+            t={t}
+          />
+        )}
       </div>
 
       <Modal

@@ -90,6 +90,19 @@ export class DirectoryBrowseError extends Error {
 class UiWorkspaceService extends Service implements UiWorkspace {
   private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
   private readonly lifetime = new AbortController()
+  /**
+   * Archive set observed on the previous reconcile. Clearing the selection is
+   * a reaction to a session *becoming* archived, so the transition — not
+   * mere membership — is what the policy reads; without this, deliberately
+   * opening a settled session would be undone on the same tick.
+   */
+  private previousArchived: ReadonlySet<SessionId> | undefined
+  /**
+   * Last activity time seen for each archived session. A later durable
+   * user message means the operator resumed a settled session, which
+   * unsettles it; the first observation only records the baseline.
+   */
+  private readonly settledActivity = new Map<SessionId, number>()
 
   /**
    * @param ctx - Client root Context.
@@ -198,6 +211,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     let initial: 'waiting' | 'connecting' | 'done' = 'waiting'
     const reconcile = (): void => {
       if (this.lifetime.signal.aborted) return
+      this.restoreResumedSessions()
       if (this.clearArchivedCurrent()) return
       if (initial !== 'waiting') return
       const workspace = this.workspaces.list.getSnapshot()
@@ -238,13 +252,55 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     }
   }
 
-  /** @returns true when an archived current selection was cleared. */
+  /**
+   * Clear the selection when the current session has just been settled.
+   * Membership alone is not the trigger: a settled session the operator opens
+   * on purpose stays open until it is resumed or settled again.
+   * @returns true when a newly settled current selection was cleared.
+   */
   private clearArchivedCurrent(): boolean {
+    const workspaces = this.workspaces.list.getSnapshot()
+    // Membership is only comparable once a complete Host baseline has landed:
+    // before that the set is empty for lack of data, and adopting it as the
+    // prior state would report every already-settled session as newly settled.
+    if (workspaces.phase !== 'ready') return false
+    const archived = new Set(workspaces.archivedSessionIds)
+    const previous = this.previousArchived
+    this.previousArchived = archived
     const current = this.sessions.list.getSnapshot().current
-    if (current === undefined
-      || !this.workspaces.list.getSnapshot().archivedSessionIds.includes(current)) return false
+    // The first ready observation only seeds the baseline, so a session
+    // settled in an earlier run keeps a selection restored onto it.
+    if (current === undefined || previous === undefined) return false
+    if (!archived.has(current) || previous.has(current)) return false
     this.sessions.clear()
     return true
+  }
+
+  /**
+   * Unsettle every archived session whose durable activity advanced. The list
+   * projection moves `updatedAt` on a user-authored durable message, so
+   * sending into a settled session returns it to its Workspace group while a
+   * draft, a rename, or a subagent's work does not.
+   */
+  private restoreResumedSessions(): void {
+    const archived = this.workspaces.list.getSnapshot().archivedSessionIds
+    const sessions = this.sessions.list.getSnapshot()
+    const members = new Set(archived)
+    for (const id of this.settledActivity.keys()) {
+      if (!members.has(id)) this.settledActivity.delete(id)
+    }
+    for (const id of archived) {
+      const summary = sessions.byId[id]
+      if (summary === undefined) continue
+      const seen = this.settledActivity.get(id)
+      if (seen === undefined || summary.updatedAt > seen) {
+        this.settledActivity.set(id, summary.updatedAt)
+      }
+      if (seen === undefined || summary.updatedAt <= seen) continue
+      void this.workspaces.restoreSession(id).catch((reason: unknown) => {
+        console.warn('session restore on resume rejected:', reason)
+      })
+    }
   }
 
 }

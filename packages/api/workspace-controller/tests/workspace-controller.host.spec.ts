@@ -221,6 +221,13 @@ describe('WorkspaceController commands', () => {
       .resolves.toEqual({ archivedSessionIds: [session.id] })
     await expect(controller.archiveSession({ sessionId: SessionId('unknown') }))
       .rejects.toMatchObject({ code: 'session/not-found' })
+
+    await expect(controller.restoreSession({ sessionId: session.id }))
+      .resolves.toEqual({ archivedSessionIds: [] })
+    // Restoring outside the set is a no-op, so no session-existence failure
+    // is reachable through this verb.
+    await expect(controller.restoreSession({ sessionId: SessionId('unknown') }))
+      .resolves.toEqual({ archivedSessionIds: [] })
   })
 })
 
@@ -291,6 +298,10 @@ describe('WorkspaceController follow', () => {
     await controller.archiveSession({ sessionId: session.id })
     await expect(nextFrame(iterator)).resolves.toEqual({
       type: 'archived', archivedSessionIds: [session.id],
+    })
+    await controller.restoreSession({ sessionId: session.id })
+    await expect(nextFrame(iterator)).resolves.toEqual({
+      type: 'archived', archivedSessionIds: [],
     })
     await controller.delete({ workspaceId: second.workspace.workspaceId })
     await expect(nextFrame(iterator)).resolves.toEqual({

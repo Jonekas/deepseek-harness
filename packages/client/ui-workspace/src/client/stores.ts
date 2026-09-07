@@ -10,6 +10,14 @@ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-sto
 /** Browser-local order account for the hierarchy-free flat Session list. */
 export const FLAT_SESSION_ORDER_KEY = '__flat_session_order__'
 
+/**
+ * Expansion key for the Settled section. It rides `groupExpansion` beside the
+ * Workspace groups rather than adding a field: rehydration replaces persisted
+ * state wholesale, so a new top-level field would read `undefined` from every
+ * store written before it existed.
+ */
+export const SETTLED_GROUP_KEY = '__settled__'
+
 /** Session-list grouping mode: workspace sections or one flat recency list. */
 export type SessionGroupBy = 'workspace' | 'flat'
 /** Session order: user-arranged only, or user-arranged plus activity promotion. */

@@ -17,6 +17,7 @@ import type {
   WorkspaceInsertSessionBeforeRequest,
   WorkspaceOrderValue,
   WorkspaceRenameRequest,
+  WorkspaceRestoreSessionRequest,
   WorkspaceValue,
 } from './types.ts'
 
@@ -107,6 +108,16 @@ export class WorkspaceController extends TypertRemoteService {
   @Remote('archiveSession')
   archiveSession(request: WorkspaceArchiveSessionRequest): Promise<WorkspaceArchiveValue> {
     return this.commands.archiveSession(request)
+  }
+
+  /**
+   * Return one archived Session to its Workspace grouping surface.
+   * @param request - Session identity to restore.
+   * @returns the complete resulting archive set.
+   */
+  @Remote('restoreSession')
+  restoreSession(request: WorkspaceRestoreSessionRequest): Promise<WorkspaceArchiveValue> {
+    return this.commands.restoreSession(request)
   }
 
   /**

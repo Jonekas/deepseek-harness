@@ -461,8 +461,8 @@ describe('workspace browser rows', () => {
       onRename={onRename} onFork={onFork} onArchive={onArchive} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
     expect(onOpen).not.toHaveBeenCalled()
-    // Archive is not destructive (log and accounting slot remain): no danger styling.
-    expect(screen.getByRole('menuitem', { name: '归档会话' }).className).not.toMatch(/danger/)
+    // Settling is not destructive (log and accounting slot remain): no danger styling.
+    expect(screen.getByRole('menuitem', { name: '搁置会话' }).className).not.toMatch(/danger/)
     // Rename dispatches with the current display title (dialog prefill).
     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
     expect(screen.queryByRole('menu')).toBeNull()
@@ -471,9 +471,9 @@ describe('workspace browser rows', () => {
     fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '分叉会话' }))
     expect(onFork).toHaveBeenCalledWith(node.id)
-    // Archive dispatches without opening the session.
+    // Settling dispatches without opening the session.
     fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '搁置会话' }))
     expect(onArchive).toHaveBeenCalledWith(node.id)
     expect(onRename).toHaveBeenCalledOnce()
     expect(onOpen).not.toHaveBeenCalled()
@@ -481,6 +481,44 @@ describe('workspace browser rows', () => {
     fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('refuses to settle a working session and offers unsettle on settled rows', () => {
+    const onArchive = vi.fn()
+    const onRestore = vi.fn()
+    const base: SessionNode = {
+      id: sid('s1'), title: 'One', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
+    }
+    const openMenu = (): void => {
+      fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
+    }
+
+    // A running turn, a waiting interaction, or a running descendant would all
+    // put live work behind the collapsed section.
+    for (const working of [
+      { ...base, running: true },
+      { ...base, pendingInteraction: 'approval' as const },
+      { ...base, runningSubagentCount: 1 },
+    ]) {
+      const view = render(<SessionNodeItem node={working} currentId={undefined} now={0}
+        onOpen={vi.fn()} onRename={vi.fn()} onFork={vi.fn()} onArchive={onArchive} t={t} />)
+      openMenu()
+      const settle = screen.getByRole('menuitem', { name: '搁置会话' })
+      expect(settle.hasAttribute('disabled')).toBe(true)
+      fireEvent.click(settle)
+      expect(onArchive).not.toHaveBeenCalled()
+      view.unmount()
+    }
+
+    // A settled row trades Settle for Unsettle and never offers both.
+    render(<SessionNodeItem node={base} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onFork={vi.fn()} onArchive={onArchive} onRestore={onRestore} settled t={t} />)
+    openMenu()
+    expect(screen.queryByRole('menuitem', { name: '搁置会话' })).toBeNull()
+    fireEvent.click(screen.getByRole('menuitem', { name: '取消搁置' }))
+    expect(onRestore).toHaveBeenCalledWith(base.id)
+    expect(onArchive).not.toHaveBeenCalled()
   })
 
 

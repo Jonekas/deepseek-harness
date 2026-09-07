@@ -19,6 +19,13 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+/* Settled rows read as set aside: the title drops to the tertiary label so the
+   section recedes from the active list without becoming unreadable. Hover and
+   selection keep their ordinary treatment — a settled session still opens. */
+.sessionRow.settledRow .title {
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .searchResultRow {
   display: flex;
   flex-direction: column;

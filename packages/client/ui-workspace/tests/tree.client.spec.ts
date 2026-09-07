@@ -5,7 +5,7 @@ import type { SessionPendingInteractionBase } from '@deepseek-ai/dsh-client-ui-s
 import type { ScheduleId, ScheduleRecord } from '@deepseek-ai/dsh-schedule/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, owningGroupKey, workspaceLabel,
+  deriveFlat, deriveGroups, deriveSearchResults, deriveSettled, owningGroupKey, workspaceLabel,
   UNGROUPED_KEY,
 } from '../src/client/tree.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
@@ -45,6 +45,44 @@ describe('owningGroupKey', () => {
     const workspaces = [workspace('first', ['owned'])]
     expect(owningGroupKey(workspaces, sid('owned'))).toBe('first')
     expect(owningGroupKey(workspaces, sid('loose'))).toBe(UNGROUPED_KEY)
+  })
+})
+
+describe('deriveSettled', () => {
+  it('lists archived sessions newest-first regardless of archive order', () => {
+    const sessions = list(summary('old', 10), summary('new', 30), summary('mid', 20))
+    const rows = deriveSettled(sessions, archived('old', 'new', 'mid'), noAttention)
+    expect(rows.map(row => row.id)).toEqual([sid('new'), sid('mid'), sid('old')])
+  })
+
+  it('excludes unlisted, blank, and subagent-born sessions', () => {
+    const blank = { ...summary('blank', 40), blank: true }
+    const child = { ...summary('child', 30), origin: 'subagent' as const }
+    const sessions = list(blank, child, summary('kept', 20))
+    // 'missing' is archived but absent from the list projection.
+    const rows = deriveSettled(sessions, archived('blank', 'child', 'kept', 'missing'), noAttention)
+    expect(rows.map(row => row.id)).toEqual([sid('kept')])
+  })
+
+  it('carries the live status facts the rows render', () => {
+    const running = { ...summary('running', 10), running: true, completed: true }
+    const attention: ReadonlyMap<SessionId, SessionPendingInteractionBase> = new Map([[
+      running.id,
+      { key: 'approval:1', kind: 'approval', sessionId: running.id },
+    ]])
+    expect(deriveSettled(list(running), archived('running'), attention)[0]).toMatchObject({
+      running: true, completed: true, pendingInteraction: 'approval',
+    })
+  })
+
+  it('is disjoint from the grouped and flat lists', () => {
+    const sessions = list(summary('active', 20), summary('settled', 10))
+    const workspaces = [workspace('project', ['active', 'settled'])]
+    const set = archived('settled')
+    expect(deriveGroups(sessions, workspaces, set, noAttention, view(['project']))[0]!
+      .sessions.map(row => row.id)).toEqual([sid('active')])
+    expect(deriveFlat(sessions, set, noAttention).map(row => row.id)).toEqual([sid('active')])
+    expect(deriveSettled(sessions, set, noAttention).map(row => row.id)).toEqual([sid('settled')])
   })
 })
 

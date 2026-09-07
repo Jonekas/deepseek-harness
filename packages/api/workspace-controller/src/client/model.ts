@@ -13,6 +13,7 @@ import type {
   WorkspaceDeleteValue,
   WorkspaceInsertSessionBeforeRequest,
   WorkspaceOrderValue,
+  WorkspaceRestoreSessionRequest,
   WorkspaceValue,
   WorkspaceId,
   WorkspaceView,
@@ -166,6 +167,19 @@ export class ClientWorkspaceModel implements WorkspaceFollowSink {
     sessionId: WorkspaceArchiveSessionRequest['sessionId'],
   ): Promise<RemoteResult<WorkspaceArchiveValue>> {
     const result = await this.remote.archiveSession({ sessionId })
+    if (result.ok) this.installArchived(result.value.archivedSessionIds)
+    return result
+  }
+
+  /**
+   * Restore one archived Session and install the returned complete archive set.
+   * @param sessionId - Session to restore.
+   * @returns generated Remote result.
+   */
+  async restoreSession(
+    sessionId: WorkspaceRestoreSessionRequest['sessionId'],
+  ): Promise<RemoteResult<WorkspaceArchiveValue>> {
+    const result = await this.remote.restoreSession({ sessionId })
     if (result.ok) this.installArchived(result.value.archivedSessionIds)
     return result
   }

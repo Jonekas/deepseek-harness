@@ -254,6 +254,28 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * Remove one session from the archive set durably, restoring the position
+   * its retained workspace accounting already describes. Membership in the set
+   * is the only precondition: an id archived earlier was known then, so no
+   * session lookup runs here and an id outside the set resolves without
+   * writing.
+   * @param sessionId - The session to restore.
+   * @returns resolution after durability.
+   */
+  restoreSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      // The chain slot serializes against every other registry write, so this
+      // check-then-write pair cannot interleave with another archive mutation.
+      const state = this.requireState()
+      if (!state.archivedSessionIds.includes(sessionId)) return
+      await this.setState({
+        ...state,
+        archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+      })
+    })
+  }
+
+  /**
    * Whether a session is live, header-indexed, or present in a fresh
    * persistence listing. Only a definite miss returns false — a failing
    * `sessionPersistence.list()` propagates so storage faults never

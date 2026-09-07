@@ -350,6 +350,35 @@ export function deriveFlat(
 }
 
 /**
+ * Derive the Settled section: every archived session as a top-level row,
+ * newest-first, independent of the grouping mode the browser is showing.
+ * Blank placeholders and subagent children never reach the section — the
+ * former have nothing to settle, the latter are read through their parent.
+ * @param list - sessions list snapshot.
+ * @param archivedSessionIds - registry-global archive set (the settled rows).
+ * @param pendingInteractions - pending UI interactions by Session.
+ * @returns settled rows in render order.
+ */
+export function deriveSettled(
+  list: SessionListState,
+  archivedSessionIds: readonly SessionId[],
+  pendingInteractions: SessionPendingInteractions,
+): SessionNode[] {
+  const descendants = indexSubagentDescendants(list.byId)
+  const rows: SessionSummary[] = []
+  // The archive set is the order authority for nothing here: settled rows
+  // read newest-first like the flat list, so a restored-then-resettled
+  // session does not jump to the bottom.
+  for (const id of archivedSessionIds) {
+    const s = list.byId[id]
+    if (s === undefined || s.blank || s.origin === 'subagent') continue
+    rows.push(s)
+  }
+  rows.sort(byRecency)
+  return rows.map(session => sessionNode(session, descendants, pendingInteractions))
+}
+
+/**
  * Merge immediate title/Workspace substring matches with ranked Host content
  * matches. Local rows lead newest-first, content-only rows retain backend
  * order, and duplicate sessions receive the backend snippet in place.

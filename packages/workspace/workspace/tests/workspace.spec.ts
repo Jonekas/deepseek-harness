@@ -952,6 +952,41 @@ describe('registry-global session archive', () => {
     expect(storedState(result.pool).archivedSessionIds).toEqual([])
   })
 
+  it('restores an archived session in place, idempotently skips non-members, and keeps siblings', async () => {
+    const dir = await makeDir('restore-home')
+    const result = await harness({
+      sessions: [header('kept', dir, 100), header('gone', dir, 200)],
+    })
+    const workspace = result.registry.list()[0]!
+    await result.registry.archiveSession(SessionId('gone'))
+    await result.registry.archiveSession(SessionId('kept'))
+
+    await result.registry.restoreSession(SessionId('gone'))
+    expect(result.registry.archivedSessionIds).toEqual(['kept'])
+    expect(storedState(result.pool).archivedSessionIds).toEqual(['kept'])
+    // The retained account is what puts the row back where it was.
+    expect(workspace.sessionIds).toContain('gone')
+    const changesAfterRestore = result.changes.filter(change => change.table === '').length
+
+    // Never archived, so there is nothing to remove and nothing to write.
+    await result.registry.restoreSession(SessionId('gone'))
+    await result.registry.restoreSession(SessionId('never-archived'))
+    expect(result.registry.archivedSessionIds).toEqual(['kept'])
+    expect(result.changes.filter(change => change.table === '').length).toBe(changesAfterRestore)
+  })
+
+  it('restores without consulting session persistence, so a storage fault cannot block it', async () => {
+    const dir = await makeDir('restore-offline')
+    const result = await harness({ sessions: [header('s1', dir, 100)] })
+    await result.registry.archiveSession(SessionId('s1'))
+    // Archive membership already proves the id was known; restoring must not
+    // strand a session behind a failing listing the way archiving would.
+    result.list.mockRejectedValue(new Error('persistence backend down'))
+
+    await result.registry.restoreSession(SessionId('s1'))
+    expect(result.registry.archivedSessionIds).toEqual([])
+  })
+
   it('restores the archive set across restarts and defaults it for pre-field media', async () => {
     const dir = await makeDir('archive-restart')
     const pool = new MemoryMediaPool()

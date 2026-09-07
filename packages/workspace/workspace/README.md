@@ -104,6 +104,8 @@ The API is one small family with two owners: `WorkspaceRegistry` creates, orders
 
 The registry opens the `workspace` domain (version 2): a `workspaces` table keyed by `WorkspaceId` plus one global state holding `workspaceIds` (the authoritative display order), `archivedSessionIds`, and the optional `pendingMutation` marker. Records written before `archivedSessionIds` existed parse with an empty set through the schema default.
 
+`archiveSession` and `restoreSession` are the two writes to that set, and they run in the same serialized operation chain as every other registry write. Archiving requires a session known to the live registry or to persistence; restoring requires only set membership, which archiving already proved, so a failing persistence listing can never strand a restore.
+
 ### Lifecycle
 
 On start, the registry opens the domain, completes a marked mutation if one is pending, validates stored state — duplicate paths, duplicate session accounts, and order drift all fail loud — and, when not yet initialized, bootstraps history from persisted headers before writing the initialized marker last, so an interrupted bootstrap resumes safely. A fresh empty registry is real once initialized; it never re-bootstraps.
@@ -160,7 +162,7 @@ These limits define when the project list is a poor fit or needs special operati
 - **Removal never deletes data** — removing a project leaves its folder, files, and session histories in place; those sessions become ungrouped, and session deletion or folder removal are separate, absent capabilities ([decision](../../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.md)).
 - **A session joins only with a recorded directory** — a session belongs to a project only when its record carries a directory that resolves to the project's path; sessions without one stay ungrouped, and a session from another directory cannot be moved in.
 - **External changes are seen late** — if another process deletes or damages a directory, the project reflects it only at the next refresh or restart.
-- **Archiving is one-way** — a hidden session keeps its history and its place, but no unarchive action exists yet; the archive set is a durable display filter.
+- **Restoring is unconditional** — `restoreSession` only removes set membership, so it performs no session lookup and reports nothing when the id was never archived; a caller wanting to know whether a session exists must ask persistence itself.
 - **Re-adding a directory starts fresh** — after removal, adding the same directory again creates a new project with an empty session list; the old sessions do not come back automatically.
 
 <a id="dev-note"></a>

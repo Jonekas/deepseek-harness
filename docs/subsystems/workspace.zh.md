@@ -233,6 +233,13 @@ Host service backing the generated `ctx.remote.workspace` namespace.
 @Remote('archiveSession') archiveSession(request: WorkspaceArchiveSessionRequest): Promise<WorkspaceArchiveValue>
 
 /**
+ * Return one archived Session to its Workspace grouping surface.
+ * @param request - Session identity to restore.
+ * @returns the complete resulting archive set.
+ */
+@Remote('restoreSession') restoreSession(request: WorkspaceRestoreSessionRequest): Promise<WorkspaceArchiveValue>
+
+/**
  * Stream a complete Workspace baseline followed by ordered increments.
  * @param signal - generation cancellation.
  * @returns baseline followed by ordered Workspace increments.
@@ -383,6 +390,17 @@ insertBefore(id: WorkspaceId, beforeId?: WorkspaceId): Promise<readonly Workspac
  * @returns resolution after durability.
  */
 archiveSession(sessionId: SessionId): Promise<void>
+
+/**
+ * Remove one session from the archive set durably, restoring the position
+ * its retained workspace accounting already describes. Membership in the set
+ * is the only precondition: an id archived earlier was known then, so no
+ * session lookup runs here and an id outside the set resolves without
+ * writing.
+ * @param sessionId - The session to restore.
+ * @returns resolution after durability.
+ */
+restoreSession(sessionId: SessionId): Promise<void>
 
 /**
  * Resolve by canonical directory path without creating or mutating a

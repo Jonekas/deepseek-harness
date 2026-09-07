@@ -453,6 +453,69 @@
   font-size: 13px;
 }
 
+/* Settled section: pinned below the scrolling list, so setting a session aside
+   never costs the active list any height. It keeps its own scroll once the
+   expanded rows pass roughly a third of the column. */
+.settledSection {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 33%;
+  margin-right: var(--dsh-session-list-edge-inset);
+  padding-top: 4px;
+  border-top: 0.5px solid var(--dsw-alias-border-l4);
+}
+
+.settledHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  padding: 0 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.settledHeader:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.settledArrow {
+  flex: none;
+  transition: transform var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.settledArrowOpen {
+  transform: rotate(90deg);
+}
+
+.settledLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.settledCount {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.settledList {
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 4px;
+}
+
 /* Rename dialog form (same figma dialog family as the create modals). */
 .renameInput {
   box-sizing: border-box;

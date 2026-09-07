@@ -4,6 +4,7 @@ import {
 } from '../src/client/index.ts'
 import type {
   WorkspaceArchiveSessionRequest,
+  WorkspaceRestoreSessionRequest,
   WorkspaceArchiveValue,
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
@@ -85,6 +86,11 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
   ) => Promise<RemoteResult<WorkspaceArchiveValue>> = request =>
     Promise.resolve(remoteOk({ archivedSessionIds: [request.sessionId] }))
 
+  onRestoreSession: (
+    request: WorkspaceRestoreSessionRequest,
+  ) => Promise<RemoteResult<WorkspaceArchiveValue>> = () =>
+    Promise.resolve(remoteOk({ archivedSessionIds: [] }))
+
   create(request: WorkspaceCreateRequest): Promise<RemoteResult<WorkspaceCreateValue>> {
     this.record('create', request)
     return this.onCreate(request)
@@ -113,6 +119,11 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
   archiveSession(request: WorkspaceArchiveSessionRequest): Promise<RemoteResult<WorkspaceArchiveValue>> {
     this.record('archiveSession', request)
     return this.onArchiveSession(request)
+  }
+
+  restoreSession(request: WorkspaceRestoreSessionRequest): Promise<RemoteResult<WorkspaceArchiveValue>> {
+    this.record('restoreSession', request)
+    return this.onRestoreSession(request)
   }
 
   async *follow(_signal?: AbortSignal): AsyncGenerator<WorkspaceFollowFrame> {}
@@ -306,6 +317,18 @@ describe('ClientWorkspaceModel', () => {
     remote.onArchiveSession = request => Promise.resolve(remoteOk({ archivedSessionIds: [request.sessionId] }))
     await expect(model.archiveSession(sid('fresh'))).resolves.toMatchObject({ ok: true })
     expect(model.getSnapshot().archivedSessionIds).toEqual(['fresh'])
+
+    // A rejected restore leaves the installed set; a successful one installs
+    // the Host's complete reply.
+    remote.onRestoreSession = () => Promise.resolve(workspaceError(
+      new RemoteError('gateway/bad-request', 'nope', {}),
+    ))
+    await expect(model.restoreSession(sid('fresh'))).resolves.toMatchObject({ ok: false })
+    expect(model.getSnapshot().archivedSessionIds).toEqual(['fresh'])
+    remote.onRestoreSession = () => Promise.resolve(remoteOk({ archivedSessionIds: [] }))
+    await expect(model.restoreSession(sid('fresh'))).resolves.toMatchObject({ ok: true })
+    expect(model.getSnapshot().archivedSessionIds).toEqual([])
+    expect(remote.calls).toContainEqual({ method: 'restoreSession', request: { sessionId: 'fresh' } })
   })
 
   it('keeps the newest row and places Workspaces missing from partial orders last', async () => {

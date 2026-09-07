@@ -369,15 +369,18 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @param props.onOpen - open a session by id.
  * @param props.onRename - open the session rename dialog (id + current title).
  * @param props.onFork - fork a session at its last completed turn.
- * @param props.onArchive - archive a session by id.
+ * @param props.onArchive - settle a session by id.
+ * @param props.onRestore - unsettle a session by id; required on settled rows.
  * @param props.onReveal - scroll this row into view after search navigation, then acknowledge it.
  * @param props.drag - optional draggable-row wiring.
  * @param props.flat - omit the empty status slot in the hierarchy-free flat list.
+ * @param props.settled - render muted, in the Settled section, offering Unsettle.
  * @param props.t - the browser root's locale seat.
  * @returns the session row.
  */
 export function SessionNodeItem({
-  node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t,
+  node, currentId, now, onOpen, onRename, onFork, onArchive, onRestore, onReveal, drag,
+  flat = false, settled = false, t,
 }: {
   node: SessionNode
   currentId: string | undefined
@@ -387,14 +390,18 @@ export function SessionNodeItem({
   onRename: (id: SessionNode['id'], currentTitle: string) => void
   /** Fork a session at its last completed turn (row menu action). */
   onFork: (id: SessionNode['id']) => void
-  /** Archive this session (row menu action; commits without a dialog). */
+  /** Settle this session (row menu action; commits without a dialog). */
   onArchive: (id: SessionNode['id']) => void
+  /** Unsettle this session (row menu action on settled rows; commits without a dialog). */
+  onRestore?: ((id: SessionNode['id']) => void) | undefined
   /** Scroll this row into view after search navigation, then acknowledge it. */
   onReveal?: (() => void) | undefined
   /** Present only on draggable rows (workspace-group sessions outside search). */
   drag?: RowDragProps | undefined
   /** The row is rendered without a parent Workspace header. */
   flat?: boolean | undefined
+  /** The row sits in the Settled section: muted, and Settle becomes Unsettle. */
+  settled?: boolean | undefined
   t: RowTranslate
 }) {
   const row = node
@@ -410,14 +417,25 @@ export function SessionNodeItem({
     rowRef.current?.scrollIntoView({ block: 'nearest' })
     onReveal()
   }, [onReveal])
-  // Archive hides the row through the registry-global archive set and never
-  // touches the session log, so it is not styled as destructive and needs no
-  // confirmation dialog.
+  // Settling moves the row to the Settled section through the registry-global
+  // archive set and never touches the session log, so it is not styled as
+  // destructive, needs no confirmation dialog, and reverses from the same menu.
+  // It is refused while the session is working: a running turn, a waiting
+  // approval or question, or a running subagent descendant would otherwise
+  // leave live work in the collapsed section.
+  const busy = row.running || row.pendingInteraction !== undefined || row.runningSubagentCount > 0
   const sessionMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
     // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
-    { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
+    settled
+      ? { id: 'restore', label: t('menu.restoreSession'), icon: <IconArchiveOutline20 size={16} /> }
+      : {
+        id: 'archive',
+        label: t('menu.archiveSession'),
+        icon: <IconArchiveOutline20 size={16} />,
+        disabled: busy,
+      },
   ]
   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (
@@ -426,6 +444,7 @@ export function SessionNodeItem({
       className={clsx(
         css.sessionRow, selected && css.selected, menuOpen && css.menuOpen,
         flat && !showStatus && css.flatSessionRowWithoutStatus,
+        settled && css.settledRow,
         drag?.marker === 'before' && css.dropBefore, drag?.marker === 'after' && css.dropAfter,
       )}
       role="treeitem"
@@ -482,6 +501,7 @@ export function SessionNodeItem({
               if (id === 'rename') onRename(node.id, row.title)
               if (id === 'fork') onFork(node.id)
               if (id === 'archive') onArchive(node.id)
+              if (id === 'restore') onRestore?.(node.id)
             }}
             portal
             closeOnPointerLeave
