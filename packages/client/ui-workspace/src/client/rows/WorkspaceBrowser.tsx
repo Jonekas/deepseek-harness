@@ -270,6 +270,8 @@ type SessionTreeProps = Pick<
   revealSessionId?: SessionId | undefined
   /** Acknowledge that the chosen Session row has been revealed. */
   onSessionRevealed: (sessionId: SessionId) => void
+  /** The Settled section this body renders as its last child. */
+  settled: SettledSectionProps
 }
 
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
@@ -280,7 +282,7 @@ function SessionTree({
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
   sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t,
-  revealSessionId, onSessionRevealed,
+  revealSessionId, onSessionRevealed, settled,
 }: SessionTreeProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const list = useSessions(s => s)
@@ -611,6 +613,7 @@ function SessionTree({
             </div>
           )
         })}
+        <SettledSection {...settled} />
       </div>
       <span className={css.fade} />
     </div>
@@ -622,7 +625,7 @@ function FlatList({
   useSessions, useSessionPendingInteraction, open, forkSession, onSessionRename, onSessionArchive,
   archivedSessionIds, usePanelInfo,
   orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder,
-  revealSessionId, onSessionRevealed, t,
+  revealSessionId, onSessionRevealed, settled, t,
 }: Pick<
   SessionTreeProps,
   | 'useSessions'
@@ -640,6 +643,7 @@ function FlatList({
   | 'setSessionOrder'
   | 'revealSessionId'
   | 'onSessionRevealed'
+  | 'settled'
   | 't'
 >) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
@@ -742,6 +746,7 @@ function FlatList({
             />
           )
         })}
+        <SettledSection {...settled} />
       </div>
       <span className={css.fade} />
     </div>
@@ -832,27 +837,35 @@ function SearchResults({
 }
 
 /**
- * The Settled section: sessions the user has set aside, collapsed by default
- * under whichever list mode is showing. It sits below the scrolling list
- * rather than inside it so the active list keeps the whole column and the
- * section stays reachable at the bottom edge.
- * @param props.expanded - persisted open state of the section.
- * @param props.onToggle - persist the opposite open state.
- * @param props.onSessionRestore - unsettle a session by id.
+ * Everything the Settled section needs. It is passed as one plain value so
+ * both list bodies can render the section as their own last child without
+ * restating the threading.
+ */
+type SettledSectionProps = Pick<
+  SessionTreeProps,
+  'useSessions' | 'useSessionPendingInteraction' | 'open' | 'forkSession' | 'onSessionRename' | 't'
+> & {
+  archivedSessionIds: readonly SessionNode['id'][]
+  /** Persisted open state of the section. */
+  expanded: boolean
+  /** Persist the opposite open state. */
+  onToggle: () => void
+  /** Unsettle a Session by id. */
+  onSessionRestore: (sessionId: SessionNode['id']) => void
+}
+
+/**
+ * The Settled section: sessions the user has set aside, collapsed by default.
+ * It is the last child of whichever list body is showing, so it sits directly
+ * under the threads and scrolls with them instead of floating at the column
+ * foot above empty space.
+ * @param props - the section's complete data and callbacks.
  * @returns the section element, or null while nothing is settled.
  */
 function SettledSection({
   useSessions, useSessionPendingInteraction, archivedSessionIds, expanded, onToggle,
   open, forkSession, onSessionRename, onSessionRestore, t,
-}: Pick<
-  SessionTreeProps,
-  'useSessions' | 'useSessionPendingInteraction' | 'open' | 'forkSession' | 'onSessionRename' | 't'
-> & {
-  archivedSessionIds: readonly SessionNode['id'][]
-  expanded: boolean
-  onToggle: () => void
-  onSessionRestore: (sessionId: SessionNode['id']) => void
-}) {
+}: SettledSectionProps) {
   const list = useSessions(s => s)
   const pendingInteractions = useSessionPendingInteraction(s => s)
   const rows = useMemo(
@@ -1165,6 +1178,23 @@ export function WorkspaceBrowser({
     })
   }
 
+  // Both list bodies render the section as their last child; search replaces
+  // the list wholesale and excludes settled rows, so it renders none.
+  const settled: SettledSectionProps = {
+    useSessions,
+    useSessionPendingInteraction,
+    archivedSessionIds,
+    expanded: groupExpansion[SETTLED_GROUP_KEY] === true,
+    onToggle: () => {
+      actions.setGroupExpanded(SETTLED_GROUP_KEY, groupExpansion[SETTLED_GROUP_KEY] !== true)
+    },
+    open,
+    forkSession,
+    onSessionRename,
+    onSessionRestore,
+    t,
+  }
+
   // Delete dialog is separate from the row so a successful removal can
   // unmount that row without tearing down the in-flight confirmation state.
   const [deleteTarget, setDeleteTarget] = useState<{ workspaceId: WorkspaceId; title: string } | null>(null)
@@ -1364,6 +1394,7 @@ export function WorkspaceBrowser({
                 setSessionOrder={actions.setSessionOrder}
                 revealSessionId={revealSessionId}
                 onSessionRevealed={acknowledgeSessionReveal}
+                settled={settled}
                 t={t}
               />
             )
@@ -1391,6 +1422,7 @@ export function WorkspaceBrowser({
                 orderBy={orderBy}
                 revealSessionId={revealSessionId}
                 onSessionRevealed={acknowledgeSessionReveal}
+                settled={settled}
                 home={home}
                 t={t}
                 onRenameRequest={(workspaceId, currentTitle) => {
@@ -1404,24 +1436,6 @@ export function WorkspaceBrowser({
                 }}
               />
             ))}
-        {/* Search replaces the list wholesale, and settled rows are excluded
-            from its results, so the section stays out of that mode. */}
-        {wide && normalizedQuery === '' && (
-          <SettledSection
-            useSessions={useSessions}
-            useSessionPendingInteraction={useSessionPendingInteraction}
-            archivedSessionIds={archivedSessionIds}
-            expanded={groupExpansion[SETTLED_GROUP_KEY] === true}
-            onToggle={() => {
-              actions.setGroupExpanded(SETTLED_GROUP_KEY, groupExpansion[SETTLED_GROUP_KEY] !== true)
-            }}
-            open={open}
-            forkSession={forkSession}
-            onSessionRename={onSessionRename}
-            onSessionRestore={onSessionRestore}
-            t={t}
-          />
-        )}
       </div>
 
       <Modal

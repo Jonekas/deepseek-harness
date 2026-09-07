@@ -486,7 +486,15 @@ describe('WorkspaceBrowser', () => {
       restoreSession,
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /已搁置/ }))
+    // The section is the scrolling list's own last child, directly under the
+    // threads, so it travels with them instead of pinning to the column foot.
+    fireEvent.click(screen.getByText('alpha'))
+    const scroller = screen.getByText('kept-s').closest('[class*="list"]')
+    const settledHeader = screen.getByRole('button', { name: /已搁置/ })
+    expect(scroller?.contains(settledHeader)).toBe(true)
+    expect(scroller?.lastElementChild?.contains(settledHeader)).toBe(true)
+
+    fireEvent.click(settledHeader)
     // Expansion is persisted beside the Workspace groups.
     expect(b.store.getSnapshot().groupExpansion.__settled__).toBe(true)
     const settledRow = screen.getByText('rest-s')
@@ -497,10 +505,10 @@ describe('WorkspaceBrowser', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '取消搁置' }))
     expect(restoreSession).toHaveBeenCalledWith(sid('rest-s'))
 
-    // The echo returns it to its Workspace group and drops the section.
+    // The echo returns it to its Workspace group — already expanded above —
+    // and drops the section.
     rerender(b, { useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'rest-s'])])) })
     expect(screen.queryByRole('button', { name: /已搁置/ })).toBeNull()
-    fireEvent.click(screen.getByText('alpha'))
     expect(screen.getByText('rest-s')).toBeTruthy()
   })
 

@@ -453,16 +453,13 @@
   font-size: 13px;
 }
 
-/* Settled section: pinned below the scrolling list, so setting a session aside
-   never costs the active list any height. It keeps its own scroll once the
-   expanded rows pass roughly a third of the column. */
+/* Settled section: the list's last child, so it sits directly under the
+   threads and scrolls with them. The rule reads as a divider closing the
+   thread list, not a fixed column footer. */
 .settledSection {
-  flex: none;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  max-height: 33%;
-  margin-right: var(--dsh-session-list-edge-inset);
+  margin-top: 8px;
   padding-top: 4px;
   border-top: 0.5px solid var(--dsw-alias-border-l4);
 }
@@ -511,8 +508,6 @@
 }
 
 .settledList {
-  min-height: 0;
-  overflow-y: auto;
   padding-bottom: 4px;
 }
 

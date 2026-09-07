@@ -41,7 +41,7 @@ The Session row's Rename action opens a dialog prefilled with the row's display 
 
 ### Settled sessions
 
-Settling sets a Session aside without touching its history: it leaves the grouped and flat lists for a **Settled** section pinned below them, muted and collapsed by default. The section is absent while nothing is settled, keeps its own scroll once it reaches a third of the column, and stays out of search results. Opening a settled row reads it normally and leaves it settled; sending a message into it unsettles it, as does the row's **Unsettle** action. A restored Session returns to the position its Workspace account still holds.
+Settling sets a Session aside without touching its history: it leaves the grouped and flat lists for a **Settled** section that closes them, muted and collapsed by default. The section is the list's last child, so it sits directly under the threads and scrolls with them; it is absent while nothing is settled and stays out of search results. Opening a settled row reads it normally and leaves it settled; sending a message into it unsettles it, as does the row's **Unsettle** action. A restored Session returns to the position its Workspace account still holds.
 
 ### Pending interactions
 
