@@ -819,10 +819,12 @@ describe('compat switches', () => {
   })
 
   it('skips models of other protocols on a mixed route instead of failing them', () => {
+    // opencode ships both completions and responses models, so a route-level switch
+    // must land on the former without invalidating the latter.
     const catalog = getBuiltinModels('opencode') as readonly Model<Api>[]
     const completions = catalog.find(model => model.api === 'openai-completions')
     const responses = catalog.find(model => model.api === 'openai-responses')
-    if (completions === undefined || responses === undefined) throw new Error('opencode ships no mixed catalog')
+    if (completions === undefined || responses === undefined) throw new Error('opencode no longer ships a mixed catalog')
 
     const models = modelsOf({
       opencode: {
@@ -901,7 +903,7 @@ describe('compat switches', () => {
     const catalog = getBuiltinModels('opencode') as readonly Model<Api>[]
     const completions = catalog.find(model => model.api === 'openai-completions')
     const responses = catalog.find(model => model.api === 'openai-responses')
-    if (completions === undefined || responses === undefined) throw new Error('opencode ships no mixed catalog')
+    if (completions === undefined || responses === undefined) throw new Error('opencode no longer ships a mixed catalog')
 
     const models = modelsOf({
       opencode: {

@@ -216,10 +216,9 @@ export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | n
 /**
  * Whether one pi-ai compat field is configurable on a profile.
  *
- * `withhold` is the disposition for a field pi-ai's installed catalog already
- * sets for a named vendor. Reaching for one of those on a hand-declared route
- * means configuring a provider that should have been named as a catalog route
- * instead, where the installed entry carries the right value already.
+ * `withhold` covers vendor-specific catalog metadata and controls the harness
+ * does not expose in generic configuration. Installed catalog values remain
+ * inherited; withholding a field does not enable it on hand-declared routes.
  */
 type CompatDisposition = 'offer' | 'withhold'
 
@@ -248,6 +247,8 @@ const COMPLETIONS_COMPAT_GATE = {
   supportsStrictMode: 'offer',
   cacheControlFormat: 'offer',
   supportsLongCacheRetention: 'offer',
+  thinkingTokenBudgetField: 'withhold',
+  vllmPriority: 'withhold',
   openRouterRouting: 'withhold',
   vercelGatewayRouting: 'withhold',
   zaiToolStream: 'withhold',
@@ -268,6 +269,7 @@ const RESPONSES_COMPAT_GATE = {
   supportsAdditionalTools: 'withhold',
   supportsToolSearch: 'withhold',
   supportsExplicitPromptCacheMode: 'withhold',
+  supportsMaxOutputTokens: 'withhold',
 } as const satisfies Record<keyof OpenAIResponsesCompat, CompatDisposition>
 
 /** Disposition of every `AnthropicMessagesCompat` field; a drift gate like the one above. */

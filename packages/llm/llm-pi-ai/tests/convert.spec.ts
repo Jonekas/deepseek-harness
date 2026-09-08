@@ -974,6 +974,28 @@ describe('mapStopReason / mapUsage', () => {
     })
   })
 
+  it('preserves completed Codex responses above the catalog capacity', async () => {
+    const completed = assistant({
+      api: 'openai-codex-responses',
+      provider: 'openai-codex',
+      model: 'gpt-6-astra',
+      stopReason: 'stop',
+      usage: usage(168, 125, 398848),
+      content: [{ type: 'text', text: 'Completed answer' }],
+    })
+    expect(mapStopReason(completed, 272000)).toEqual({ kind: 'stop' })
+    const chunks = await collect(toStreamChunks(feed({ type: 'done', reason: 'stop', message: completed }), 272000))
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
+    expect(mapStopReason({ ...completed, content: [] }, 272000)).toMatchObject({
+      kind: 'error', failure: { code: EMPTY_RESPONSE_CODE },
+    })
+    expect(mapStopReason({
+      ...completed, stopReason: 'error', errorMessage: 'Your input exceeds the context window of this model.',
+    }, 272000)).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
+    expect(mapStopReason({ ...completed, stopReason: 'length', usage: usage(272000, 0) }, 272000))
+      .toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
+  })
+
   it('maps cache fields only when nonzero', () => {
     expect(mapUsage(usage(10, 5, 8, 2))).toEqual({
       inputTokens: 10,
