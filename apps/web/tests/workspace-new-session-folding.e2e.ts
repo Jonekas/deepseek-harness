@@ -1,4 +1,4 @@
-/** Blank New Session folding through the shipped Web composition. */
+/** Complete workspace session lists beside New Session through the shipped Web composition. */
 
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
@@ -24,7 +24,7 @@ const SEED = fileURLToPath(new URL('../../../snapshots/web/message-feedback-prot
 const MODE = webSnapshotMode()
 const EXISTING_SESSION_COUNT = 6
 
-describe('web e2e: blank New Session folding quota', () => {
+describe('web e2e: complete workspace session lists', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -66,25 +66,24 @@ describe('web e2e: blank New Session folding quota', () => {
     await scaffold?.close()
   })
 
-  it('keeps five established sessions beside the provisional row', async () => {
+  it('keeps every established session beside the provisional row across workspace collapse', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-workspace-new-session-folding'))
     const sidebar = page.getByRole('tree', { name: 'Sessions' })
-    await expect.poll(() => sidebar.getByRole('treeitem').count(), { timeout: 15_000 }).toBe(7)
+    await expect.poll(() => sidebar.getByRole('treeitem').count(), { timeout: 15_000 }).toBe(EXISTING_SESSION_COUNT + 2)
     expect(await sidebar.getByText('New Session', { exact: true }).count()).toBe(1)
-    expect(await sidebar.getByText(basename(scaffold.workspaceCwd), { exact: true }).count()).toBe(6)
-    const showMore = sidebar.getByRole('button', { name: 'Show 1 more sessions' })
-    await showMore.waitFor({ timeout: 15_000 })
+    expect(await sidebar.getByText(basename(scaffold.workspaceCwd), { exact: true }).count()).toBe(EXISTING_SESSION_COUNT + 1)
     await compareOrRefreshGolden(
       SIDEBAR_EXPECTED,
       await captureStableAria(page, '[role="tree"][aria-label="Sessions"]', scaffold.workspaceCwd),
       MODE,
     )
 
-    await showMore.click()
-    await expect.poll(() => sidebar.getByRole('treeitem').count(), { timeout: 10_000 }).toBe(8)
-    expect(await sidebar.getByText(basename(scaffold.workspaceCwd), { exact: true }).count()).toBe(7)
-    await sidebar.getByRole('button', { name: 'Show less' }).click()
-    await expect.poll(() => sidebar.getByRole('treeitem').count()).toBe(7)
+    const workspaceRow = sidebar.getByRole('treeitem').first()
+    await workspaceRow.click()
+    await expect.poll(() => sidebar.getByRole('treeitem').count()).toBe(1)
+    await workspaceRow.click()
+    await expect.poll(() => sidebar.getByRole('treeitem').count()).toBe(EXISTING_SESSION_COUNT + 2)
+    expect(await sidebar.getByText('New Session', { exact: true }).count()).toBe(1)
     await assertFixtureInventory(EXPECTED_DIR, ['sidebar.expected.md'])
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])

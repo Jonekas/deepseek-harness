@@ -246,9 +246,8 @@ async function pointAt(page: Page, where: 'list' | 'away'): Promise<void> {
 
 /**
  * Reveal the seeded rows: every seeded session is unattached, so they all sit
- * in the collapsed Ungrouped bucket. Open the bucket, then use its transient
- * Show-more control because an open group intentionally renders only five
- * rows by default. Hand-rolled polling because
+ * in the collapsed Ungrouped bucket. Opening it renders every session.
+ * Hand-rolled polling because
  * `expect.poll` is test-scoped and this runs in `beforeAll`.
  * @param page - the page under test.
  */
@@ -261,15 +260,9 @@ async function expandSeededSessions(page: Page): Promise<void> {
     if (await bucket.getAttribute('aria-expanded') !== 'true') {
       await page.getByText('Ungrouped', { exact: true }).click()
     }
-    const showMore = page.getByRole('button', { name: /Show \d+ more sessions/ })
-    if (await bucket.getAttribute('aria-expanded') === 'true'
-      && await rows.count() <= SEED_COUNT / 2
-      && await showMore.count() > 0) {
-      await showMore.click()
-    }
-    if (await bucket.getAttribute('aria-expanded') === 'true' && await rows.count() > SEED_COUNT / 2) return
+    if (await bucket.getAttribute('aria-expanded') === 'true' && await rows.count() >= SEED_COUNT + 1) return
     if (Date.now() > deadline) {
-      throw new Error(`Ungrouped bucket never revealed more than ${SEED_COUNT / 2} rows`)
+      throw new Error(`Ungrouped bucket never revealed all ${SEED_COUNT} sessions`)
     }
     await page.waitForTimeout(200)
   }
