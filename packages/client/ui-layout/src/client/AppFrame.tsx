@@ -13,13 +13,23 @@
  * shown/track/fullscreen through `ctx.layout`; fullscreen keeps the reported
  * track but hides the outer resize handle. Everything arrives through the framework
  * shares — zero cordis or framework imports, zero self-made hooks.
+ *
+ * At or below MOBILE_MAX_WIDTH the same three occupants stay mounted but stop
+ * being columns: the sidebar and the centre stack into one full-width cell and
+ * the store's `mobileView` decides which of them is visible, so a phone reads a
+ * full-width session list, opens one session into a full-width conversation,
+ * and returns with the frame's own back bar. Nothing unmounts on the switch —
+ * both subtrees keep their scroll offsets and their drafts.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { IconChevronLeftOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import { computeColumns, RIGHTBAR_DEFAULT_RATIO, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
+import {
+  computeColumns, MOBILE_MAX_WIDTH, RIGHTBAR_DEFAULT_RATIO, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT,
+} from './columns.ts'
 import { DocumentTitle } from './DocumentTitle.tsx'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
@@ -157,6 +167,43 @@ export function AppFrame({
     }
   }, [actions])
 
+  const mobile = viewport <= MOBILE_MAX_WIDTH
+  const mobileView = layoutInfo.mobileView
+  // The mobile bar is the only place this frame still reads Session data; the
+  // document title moved to DocumentTitle.
+  const currentSessionId = useSessions(s => s.current)
+  const currentDisplayTitle = useSessions((s) => {
+    const current = s.current
+    return current === undefined ? undefined : s.byId[current]?.displayTitle
+  })
+
+  // Opening a different session is the navigation gesture: on a phone it means
+  // "show me that conversation". The restored selection is not a gesture, so it
+  // is only recorded — a reload lands on the list. It arrives with the list
+  // itself, which is why the baseline is taken on the first ready snapshot and
+  // not on the first paint, where `current` is still undefined.
+  const sessionsReady = useSessions(s => s.phase === 'ready')
+  const observedSession = useRef<{ seeded: boolean; id: string | undefined }>({ seeded: false, id: undefined })
+  useEffect(() => {
+    if (!sessionsReady) return
+    const seen = observedSession.current
+    observedSession.current = { seeded: true, id: currentSessionId }
+    if (!seen.seeded || currentSessionId === seen.id || currentSessionId === undefined) return
+    actions.setMobileView('chat')
+  }, [sessionsReady, currentSessionId, actions])
+
+  // Re-picking the session that is already current changes no id, so the effect
+  // above cannot see it. The session rows are the sidebar's selectable tree
+  // items (`aria-selected`), which distinguishes them from the workspace group
+  // rows (`aria-expanded`) that only fold their section.
+  const onSidebarClickCapture = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!(e.target instanceof Element)) return
+    if (e.target.closest('[role="treeitem"][aria-selected]') === null) return
+    actions.setMobileView('chat')
+  }, [actions])
+
+  const onMobileBack = useCallback(() => { actions.setMobileView('list') }, [actions])
+
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
   const sidebarCollapsed = narrow ? !layoutInfo.narrowExpanded : layoutInfo.sidebar === 0
   const sidebarPreference = sidebarCollapsed
@@ -190,25 +237,33 @@ export function AppFrame({
     actions.setRightbar(rightbarBase.current - dx)
   }, [actions])
   const productTitle = process.env.DSH_CLIENT_TITLE ?? t('brand.localBuild')
+  // A mobile frame has no rail: the list is the whole view, so it is never
+  // asked to collapse and draws at the full frame width.
   const sidebar = useMemo(() => renderSlot('sidebar', {
-    collapsed: sidebarCollapsed,
-    width: cols.sidebar,
-  }), [renderSlot, sidebarCollapsed, cols.sidebar])
+    collapsed: !mobile && sidebarCollapsed,
+    width: mobile ? viewport : cols.sidebar,
+  }), [renderSlot, mobile, sidebarCollapsed, viewport, cols.sidebar])
   const main = useMemo(() => (
     <MainPanel usePanelInfo={usePanelInfo} renderSlot={renderSlot} />
   ), [usePanelInfo, renderSlot])
   const overlays = useMemo(() => renderSlot('shell.overlay', {}), [renderSlot])
 
+  // Below the breakpoint the two views share one full-width cell, so the right
+  // column can never take a track. The sidebar's own full-frame width is
+  // resolved where its slot is memoized above.
+  const rightbarNormal = mobile ? 0 : normal.rightbar
+
   return (
     <div
       ref={frameRef}
       className={css.frame}
-      style={{
-        gridTemplateColumns:
-          `${cols.sidebar}px minmax(0, 1fr) ${cols.rightbar}px`,
-      }}
-      data-sidebar-collapsed={sidebarCollapsed || undefined}
-      data-rightbar-collapsed={cols.rightbar === 0 || undefined}
+      style={mobile
+        ? { gridTemplateColumns: '100%' }
+        : { gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.rightbar}px` }}
+      data-mobile={mobile || undefined}
+      data-mobile-view={mobile ? mobileView : undefined}
+      data-sidebar-collapsed={(!mobile && sidebarCollapsed) || undefined}
+      data-rightbar-collapsed={(mobile || cols.rightbar === 0) || undefined}
       data-rightbar-fullscreen={layoutInfo.rightbarFullscreen || undefined}
       data-rightbar-instant={layoutInfo.rightbarInstant || undefined}
       data-dragging={dragging || undefined}
@@ -218,21 +273,44 @@ export function AppFrame({
         useSessions={useSessions}
         usePanelInfo={usePanelInfo}
       />
-      <div className={css.sidebarCol}>
+      {mobile && mobileView === 'chat' && (
+        // The frame owns the only way back to the list, because the list is no
+        // longer on screen beside the conversation. It carries the session
+        // title too: the conversation header drops its breadcrumbs first when
+        // the column is this narrow.
+        <div className={css.mobileBar}>
+          <button
+            type="button"
+            className={css.mobileBack}
+            aria-label={t('back')}
+            onClick={onMobileBack}
+          >
+            <IconChevronLeftOutline14 size={16} />
+          </button>
+          <span className={css.mobileTitle}>{currentDisplayTitle ?? productTitle}</span>
+        </div>
+      )}
+      <div
+        className={css.sidebarCol}
+        {...mobile ? { onClickCapture: onSidebarClickCapture } : {}}
+      >
         {sidebar}
       </div>
       <>
         <CenterColumn>{main}</CenterColumn>
         <RightbarColumn>
-          {renderSlot('rightbar', { width: normal.rightbar, viewportWidth: viewport, canShow: normal.rightbar > 0 })}
+          {/* A mobile frame can never take a right track, so the occupant is
+              told it has no width to draw at. */}
+          {renderSlot('rightbar', { width: rightbarNormal, viewportWidth: viewport, canShow: rightbarNormal > 0 })}
         </RightbarColumn>
       </>
       <div className={css.overlayLayer} data-shell-overlay>
         {overlays}
       </div>
-      {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
-      {layoutInfo.rightbarShown && !layoutInfo.rightbarFullscreen && normal.rightbar > 0 && (
+      {/* The collapsed rail is fixed-width: no resize handle while closed, and
+          a mobile frame has no column border to drag at all. */}
+      {!mobile && !sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {!mobile && layoutInfo.rightbarShown && !layoutInfo.rightbarFullscreen && normal.rightbar > 0 && (
         <DragHandle side="rightbar" left={viewport - normal.rightbar} onStart={onRightbarStart} onDrag={onRightbarDrag} onEnd={onDragEnd} />
       )}
     </div>

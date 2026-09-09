@@ -23,11 +23,18 @@
      descendants) and the clamp keeps a 680px floor (a step under the figma
      748px — the full-width reading felt wide on every screen), takes 64% of
      wider columns, and caps at 920px for line-length
-     readability. A dragged user preference (--dsh-chat-user-width, published
-     by the width handles) replaces the adaptive term wholesale. */
+     readability. The floor itself yields to a column narrower than it (phone
+     widths and a squeezed centre), so W never exceeds the column it describes
+     and the derived geometry below stays inside the frame. A dragged user
+     preference (--dsh-chat-user-width, published by the width handles)
+     replaces the adaptive term wholesale. */
   --dsh-chat-content-width: var(
     --dsh-chat-user-width,
-    clamp(680px, calc(var(--dsh-conversation-column-width, 0px) * 0.64), 920px)
+    clamp(
+      min(680px, var(--dsh-conversation-column-width, 680px)),
+      calc(var(--dsh-conversation-column-width, 0px) * 0.64),
+      920px
+    )
   );
   --dsh-composer-card-max-width: calc(var(--dsh-chat-content-width) + 32px);
   --dsh-composer-side-clearance: 16px;
@@ -89,6 +96,16 @@
   color: var(--dsw-alias-label-caption);
   font-size: 14px;
   line-height: 20px;
+}
+
+/* Phone widths: the breadcrumbs are the first thing the header cannot afford —
+   squeezed against the mode chip and the action buttons they ellipsize to a
+   single character, which names nothing. The shell shows the session title in
+   its own bar at these widths, so dropping them here loses no information. */
+@media (max-width: 768px) {
+  .crumbs {
+    display: none;
+  }
 }
 
 .crumb {

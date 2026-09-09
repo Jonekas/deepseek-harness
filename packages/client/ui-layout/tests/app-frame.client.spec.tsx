@@ -14,6 +14,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined })) as GlobalStandardProps['useResource']
 let selectedSession: SessionId | undefined
 let selectedSessionTitle: string | undefined
+let sessionsPhase: 'pending' | 'ready' = 'ready'
 let workspacesReady = true
 type AttentionSnapshot = Parameters<Parameters<AppFrameProps['useSessionPendingInteraction']>[0]>[0]
 const noAttention: AttentionSnapshot = new Map()
@@ -77,7 +78,7 @@ function mountFrame(windowWidth = frameWidth) {
       },
     },
     current: selectedSession,
-    phase: 'ready',
+    phase: sessionsPhase,
     subagentsByParent: {},
     jobsBySession: {},
     currentAddress: undefined,
@@ -142,6 +143,7 @@ beforeEach(() => {
   frameWidth = 1920
   selectedSession = 's-test' as SessionId
   selectedSessionTitle = undefined
+  sessionsPhase = 'ready'
   workspacesReady = true
   observers = []
   animationFrames = new Map()
@@ -275,7 +277,7 @@ describe('AppFrame normal width concessions', () => {
     expect(frame.querySelector('[data-side="rightbar"]')).toBeNull()
     expect(instance.getSnapshot().layoutInfo).toMatchObject({ rightbarShown: true, rightbar: 864 })
     act(() => { instance.actions.closeRightbar() })
-    resize(455)
+    resize(800)
     expect(tracks(frame)).toEqual([56, 0])
     resize(1920)
     expect(tracks(frame)).toEqual([420, 0])
@@ -293,7 +295,10 @@ describe('AppFrame normal width concessions', () => {
     expect(rightOwner().canShow).toBe(true)
   })
 
-  it.each([[756, 300, true], [755, 0, false]] as const)('reports eligibility at %ipx', (width, rightbar, canShow) => {
+  // The mobile floor now decides the narrow end: below it the frame shows one
+  // view at a time and no right panel can take a track, so the first width that
+  // can carry one is the first width above the breakpoint.
+  it.each([[769, 313, true], [768, 0, false]] as const)('reports eligibility at %ipx', (width, rightbar, canShow) => {
     frameWidth = width
     const { instance, rightOwner } = mountFrame()
     act(() => { instance.actions.toggleSidebar() })
@@ -416,12 +421,14 @@ describe('AppFrame right panel presentation', () => {
     expect(frame.dataset.rightbarFullscreen).toBeUndefined()
   })
 
-  it('retains fullscreen without a track when normal columns cannot fit', () => {
-    frameWidth = 700
+  // A frame narrow enough to refuse a normal panel is now a mobile frame: above
+  // the breakpoint the collapsed rail always leaves the 300px the panel needs.
+  it('retains fullscreen without a track when the frame refuses a normal panel', () => {
+    frameWidth = 390
     const { frame, instance, rightOwner } = mountFrame()
     act(() => { instance.actions.openRightbar(false, true) })
-    expect(tracks(frame)).toEqual([56, 0])
-    expect(rightOwner()).toEqual({ width: 0, viewportWidth: 700, canShow: false })
+    expect(rightOwner()).toEqual({ width: 0, viewportWidth: 390, canShow: false })
+    expect(frame.dataset.rightbarFullscreen).toBe('true')
     expect(instance.getSnapshot().layoutInfo.rightbarShown).toBe(true)
     expect(frame.querySelector('[data-side="rightbar"]')).toBeNull()
   })
@@ -588,5 +595,124 @@ describe('AppFrame frame measurement lifecycle', () => {
     act(() => { observer.fire(); flushFrames() })
     expect(instance.getSnapshot().layoutInfo.viewportWidth).toBe(1920)
     expect(animationFrames.size).toBe(0)
+  })
+})
+
+/** The frame's own column element for a slot, found through its rendered occupant. */
+function columnOf(frame: HTMLElement, slot: string): HTMLElement {
+  const occupant = frame.querySelector(`[data-testid="${slot}-content"]`)
+  if (occupant?.parentElement == null) throw new Error(`missing ${slot} column`)
+  return occupant.parentElement
+}
+
+function backButton(frame: HTMLElement): HTMLElement | null {
+  return frame.querySelector<HTMLElement>('button[aria-label="back"]')
+}
+
+describe('AppFrame mobile presentation', () => {
+  it('collapses to one full-width view and drops every column affordance', () => {
+    frameWidth = 390
+    const { frame, sidebarOwner, rightOwner } = mountFrame()
+    expect(frame.style.gridTemplateColumns).toBe('100%')
+    expect(frame.dataset.mobile).toBe('true')
+    expect(frame.dataset.mobileView).toBe('list')
+    // The list is the whole view, so the occupant is never asked for its rail.
+    expect(sidebarOwner()).toEqual({ collapsed: false, width: 390 })
+    expect(rightOwner()).toEqual({ width: 0, viewportWidth: 390, canShow: false })
+    expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
+    expect(frame.querySelector('[data-side="rightbar"]')).toBeNull()
+  })
+
+  it('restores the columns above the breakpoint', () => {
+    frameWidth = 390
+    const { frame, sidebarOwner } = mountFrame()
+    resize(769)
+    expect(frame.dataset.mobile).toBeUndefined()
+    expect(frame.dataset.mobileView).toBeUndefined()
+    expect(tracks(frame)).toEqual([56, 0])
+    expect(sidebarOwner()).toEqual({ collapsed: true, width: 56 })
+    expect(backButton(frame)).toBeNull()
+  })
+
+  it('opens the conversation when another session becomes current, not on first paint', () => {
+    frameWidth = 390
+    const { frame, instance, rerenderFrame } = mountFrame()
+    // A restored current session is state, not a navigation gesture.
+    expect(instance.getSnapshot().layoutInfo.mobileView).toBe('list')
+    expect(backButton(frame)).toBeNull()
+    selectedSession = 's-other' as SessionId
+    rerenderFrame()
+    expect(instance.getSnapshot().layoutInfo.mobileView).toBe('chat')
+    expect(frame.dataset.mobileView).toBe('chat')
+  })
+
+  it('treats the selection restored with the session list as the baseline', () => {
+    frameWidth = 390
+    sessionsPhase = 'pending'
+    selectedSession = undefined
+    const { instance, rerenderFrame } = mountFrame()
+    // The list arrives carrying the persisted selection; a reader who opened
+    // the app has not asked for that conversation yet.
+    sessionsPhase = 'ready'
+    selectedSession = 's-restored' as SessionId
+    rerenderFrame()
+    expect(instance.getSnapshot().layoutInfo.mobileView).toBe('list')
+    selectedSession = 's-picked' as SessionId
+    rerenderFrame()
+    expect(instance.getSnapshot().layoutInfo.mobileView).toBe('chat')
+  })
+
+  it('stays on the list when the current session is cleared', () => {
+    frameWidth = 390
+    const { instance, rerenderFrame } = mountFrame()
+    selectedSession = undefined
+    rerenderFrame()
+    expect(instance.getSnapshot().layoutInfo.mobileView).toBe('list')
+  })
+
+  it('opens the conversation when the already-current session row is picked again', () => {
+    frameWidth = 390
+    const { frame, instance } = mountFrame()
+    const sidebar = columnOf(frame, 'sidebar')
+    const sessionRow = document.createElement('div')
+    sessionRow.setAttribute('role', 'treeitem')
+    sessionRow.setAttribute('aria-selected', 'true')
+    const groupRow = document.createElement('div')
+    groupRow.setAttribute('role', 'treeitem')
+    groupRow.setAttribute('aria-expanded', 'true')
+    sidebar.append(groupRow, sessionRow)
+    // Folding a workspace group is not navigation.
+    act(() => { groupRow.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(instance.getSnapshot().layoutInfo.mobileView).toBe('list')
+    act(() => { sessionRow.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(instance.getSnapshot().layoutInfo.mobileView).toBe('chat')
+  })
+
+  it('ignores sidebar clicks that land outside a session row', () => {
+    frameWidth = 390
+    const { frame, instance } = mountFrame()
+    const sidebar = columnOf(frame, 'sidebar')
+    act(() => { sidebar.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(instance.getSnapshot().layoutInfo.mobileView).toBe('list')
+  })
+
+  it('titles the back bar with the current session and returns to the list', () => {
+    frameWidth = 390
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.setMobileView('chat') })
+    const back = backButton(frame)
+    if (back === null) throw new Error('missing mobile back control')
+    expect(back.parentElement?.textContent).toContain('Test')
+    act(() => { back.click() })
+    expect(instance.getSnapshot().layoutInfo.mobileView).toBe('list')
+    expect(backButton(frame)).toBeNull()
+  })
+
+  it('falls back to the product title when the session has none', () => {
+    frameWidth = 390
+    selectedSession = undefined
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.setMobileView('chat') })
+    expect(backButton(frame)?.parentElement?.textContent).toContain('DSH Local Build')
   })
 })

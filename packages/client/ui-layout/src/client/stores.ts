@@ -9,6 +9,9 @@ import {
   SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
 } from './columns.ts'
 
+/** Which single view a mobile-width frame shows; ignored above the breakpoint. */
+export type MobileView = 'list' | 'chat'
+
 /**
  * Transient layout preferences. Responsive concessions never rewrite widths;
  * the right panel's expanded state belongs to its occupant.
@@ -49,6 +52,12 @@ type LayoutInfo = {
   rightbarFullscreen: boolean
   /** Suppress transitions for a fullscreen exit until another geometry action. */
   rightbarInstant: boolean
+  /**
+   * Which of the two full-width views a mobile-width frame shows. Kept at every
+   * width (the frame reads it only below MOBILE_MAX_WIDTH) so rotating a phone
+   * or resizing a desktop window back down returns to the view the reader left.
+   */
+  mobileView: MobileView
 }
 
 /**
@@ -64,6 +73,7 @@ type LayoutActions = {
   setRightbar: (draft: LayoutState, px: number) => void
   openRightbar: (draft: LayoutState, track: boolean, fullscreen: boolean) => void
   closeRightbar: (draft: LayoutState) => void
+  setMobileView: (draft: LayoutState, view: MobileView) => void
 }
 
 /**
@@ -72,7 +82,9 @@ type LayoutActions = {
  * default. The right panel initializes at 45% of the frame on first opening
  * and keeps that px preference across resizes and close. Drag writes clamp to
  * the current frame's range. Narrow sidebar toggles change only the expansion
- * override; opening the right panel clears that override.
+ * override; opening the right panel clears that override. The mobile view
+ * starts on the session list and no resize rewrites it, so a frame that crosses
+ * the breakpoint twice returns to the view its reader left.
  * @returns the store handle (spec + type + identity + factory in one).
  */
 export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutActions>  {
@@ -88,6 +100,7 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
         rightbarTrack: false,
         rightbarFullscreen: false,
         rightbarInstant: false,
+        mobileView: 'list',
       },
     }),
     actions: {
@@ -139,6 +152,9 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
         d.layoutInfo.rightbarShown = false
         d.layoutInfo.rightbarTrack = false
         d.layoutInfo.rightbarFullscreen = false
+      },
+      setMobileView: (d, view: MobileView) => {
+        d.layoutInfo.mobileView = view
       },
     },
   })

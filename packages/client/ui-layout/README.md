@@ -1,5 +1,5 @@
 ---
-description: "Shell layout for the Web GUI: the three-column AppFrame whose right column is a track for an edge-anchored panel, the panel-geometry service, and theme presentation; for users and maintainers of the window chrome."
+description: "Shell layout for the Web GUI: the three-column AppFrame whose right column is a track for an edge-anchored panel, its mobile single-view presentation, the panel-geometry service, and theme presentation; for users and maintainers of the window chrome."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package provides the Web GUI's three-column AppFrame, edge-column widths, and `ctx.layout` presentation control. The right column concedes space before the center; its occupant renders fullscreen while the frame retains the wide-screen track underneath. The theme presenter owns color scheme, alias tokens, content font size, and document metadata. Layout state resets on reload.
+This package provides the Web GUI's three-column AppFrame, edge-column widths, and `ctx.layout` presentation control. The right column concedes space before the center; its occupant renders fullscreen while the frame retains the wide-screen track underneath. At or below 768px the same occupants stay mounted but show one full-width view at a time, session list or conversation. The theme presenter owns color scheme, alias tokens, content font size, and document metadata. Layout state resets on reload.
 
 ## Table of Contents
 
@@ -28,6 +28,10 @@ This package provides the Web GUI's three-column AppFrame, edge-column widths, a
 The root slot composes the sidebar, main content, and right column. The sidebar spans 264–420px, defaults to 280px, and retains a 56px rail when collapsed; below 1024px it collapses automatically, and opening the right panel collapses a manually expanded sidebar. The right panel first opens at 45% of the viewport, then retains the user's pixel preference, capped at 70%. To protect 400px for the center, the frame first reduces the right panel to 300px, then reports insufficient room so its occupant closes it, and only then compresses the center further. Dragging has no transition delay; the right handle is absent while closed or fullscreen.
 
 Global panels occupy the root-scoped `main` keyed slot; `conversation` is the reserved key for the Conversation. `ctx.layout.selectPanel(id)` selects a registered panel, and `null` selects the Conversation without changing the current Session. No global panel is registered by the shipped composition.
+
+### Mobile presentation
+
+At or below 768px the frame stops being a column layout. The sidebar and the conversation share one full-width cell and stay mounted, so switching between them preserves scroll offsets and drafts; the right column can take no track and both drag handles are absent. Opening a session that is not the current one shows the conversation, and so does re-picking the current one from the list; the selection restored with the session list is not a navigation gesture, so a reload lands on the list. A 44px bar carrying the session title and a back control returns to it. The chosen view survives crossing the breakpoint in either direction.
 
 ### Theme presentation
 
@@ -79,7 +83,8 @@ None; this package neither assembles nor sends a provider request.
 These limits define the current layout behavior. They are current package constraints, not a general window-manager comparison or a task backlog.
 
 - **Panel geometry is transient** — reload restores the sidebar default and the right panel hidden; each dragged width is one frame-wide preference, not a per-Session fact.
-- **Extremely narrow windows** — after the right panel closes, the center may still fall below 400px; the left 56px rail remains.
+- **Extremely narrow windows** — between 769px and the width the center needs, the left 56px rail remains after the right panel closes; below 769px the frame switches to its single-view presentation instead.
+- **Re-picking the current session reads an ARIA relationship** — the mobile click signal recognizes a session row as a tree item carrying `aria-selected`. A sidebar that stopped marking rows that way would still switch views on an ordinary session change, but not on a re-pick.
 - **Track and panel travel on one shared curve** — the frame's track transition and the occupant's slide read the same duration and easing variables; an occupant that used its own would detach the panel's edge from the conversation's while squeezing.
 - **No scroll anchoring during squeeze reflow** — layout changes may move the reader's viewport.
 

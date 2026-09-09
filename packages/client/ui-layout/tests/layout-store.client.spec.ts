@@ -21,8 +21,22 @@ describe('createLayoutStore', () => {
         rightbarTrack: false,
         rightbarFullscreen: false,
         rightbarInstant: false,
+        mobileView: 'list',
       },
     })
+  })
+
+  it('keeps the chosen mobile view until it is set again', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setMobileView('chat')
+    expect(store.getSnapshot().layoutInfo.mobileView).toBe('chat')
+    // Geometry actions describe columns, not which single view a phone shows.
+    actions.setViewportWidth(390)
+    actions.toggleSidebar()
+    actions.openRightbar(true, false)
+    expect(store.getSnapshot().layoutInfo.mobileView).toBe('chat')
+    actions.setMobileView('list')
+    expect(store.getSnapshot().layoutInfo.mobileView).toBe('list')
   })
 
   it('creates independent instances without browser persistence', () => {

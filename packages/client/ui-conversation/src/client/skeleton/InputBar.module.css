@@ -263,6 +263,17 @@
   min-width: 0;
 }
 
+/* Every group wraps rather than pushing the row past the card: the left groups
+   and the trailing group each hold nowrap chips (mode pills, injected badges,
+   the model trigger), and a nowrap group wider than the card would otherwise
+   overflow its right edge and carry the send control off-screen on a narrow
+   column or a phone. */
+.tools,
+.modes {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
 /* figma 75:8208 drew 16 between + and the mode chips and 4 between Plan /
    Read-only; both gaps settled on 12 so the pill chips read as separate
    controls without drifting from the + control. */
@@ -275,14 +286,32 @@
 }
 
 .trailing {
-  flex: none;
+  /* Shrinkable, never wider than the row: the group holds slot-injected chips
+     (usage badges, model trigger) whose intrinsic width can exceed a phone
+     column, and `flex: none` would have let that width push the send control
+     past the card's right edge. */
+  flex: 0 1 auto;
+  max-width: 100%;
   /* Wrap keeps the left mode chips and the right controls apart when the card
      runs out of row width: the trailing group (model + send) moves to its own
      line instead of the left group shrinking until its chip overlaps the
      model trigger (external:107). The auto margin re-anchors it right on the
      wrapped line; on a single line space-between already pins it right. */
   margin-left: auto;
+  /* Its own contents wrap too, so a group of injected chips stacks into as
+     many lines as the card needs instead of overflowing one line. Wrapped
+     lines stay right-anchored with the send control last. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 12px;
+  row-gap: 8px;
+}
+
+/* Injected seats hold nowrap content; without this they refuse to shrink below
+   their intrinsic width and re-create the overflow one level down. */
+.trailing > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* Attach circle (figma + control): 28px, selector fill, primary glyph. */

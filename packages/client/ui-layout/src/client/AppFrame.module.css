@@ -97,3 +97,83 @@
 .overlayLayer > * {
   pointer-events: auto;
 }
+
+/*
+ * Mobile presentation (frame width <= MOBILE_MAX_WIDTH). The three column
+ * occupants keep their tree positions and stay mounted — switching views must
+ * not drop a transcript's scroll offset or a half-typed draft — so the two
+ * that can be shown share one full-width grid cell and `mobileView` decides
+ * which is visible. `visibility`, not `display`, is what keeps the hidden
+ * subtree laid out and therefore keeps its scroll offsets.
+ */
+.frame[data-mobile] {
+  /* Row 1 is the back bar, present only in the conversation view; with no bar
+     the auto track resolves to zero and the view keeps the whole frame. */
+  grid-template-rows: auto minmax(0, 1fr);
+  /* Nothing animates: there is no column edge left to ease. */
+  transition: none;
+}
+
+.frame[data-mobile] .sidebarCol,
+.frame[data-mobile] .centerCol,
+.frame[data-mobile] .rightbarCol {
+  grid-row: 2;
+  grid-column: 1;
+}
+
+/* No column border on a single-view frame. */
+.frame[data-mobile] .sidebarCol {
+  border-right: none;
+}
+
+.frame[data-mobile][data-mobile-view='chat'] .sidebarCol,
+.frame[data-mobile][data-mobile-view='list'] .centerCol,
+.frame[data-mobile] .rightbarCol {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Back bar: the frame's own chrome, and the only route from a conversation
+   back to the session list once they no longer sit side by side. */
+.mobileBar {
+  grid-row: 1;
+  grid-column: 1;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  padding: 0 12px 0 4px;
+  background: var(--dsw-specific-sidebar-fill);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.mobileBack {
+  display: grid;
+  place-items: center;
+  flex: none;
+  /* 40px: a comfortable touch target, larger than the 16px glyph it draws. */
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  corner-shape: round;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.mobileBack:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.mobileTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

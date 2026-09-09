@@ -21,6 +21,14 @@ export const SIDEBAR_COLLAPSED = 56
  * LG breakpoint); a manual toggle below it re-expands over the squeezed center
  * (stores.ts narrowExpanded). */
 export const SIDEBAR_AUTO_COLLAPSE = 1024
+/**
+ * Frame width at or below which the shell stops being a column layout and shows
+ * one full-width view at a time (session list or conversation, AppFrame's
+ * `mobileView`). Set at the deepsuite MD breakpoint: below it the rail plus a
+ * 400px centre leaves no usable reading column, and every side-by-side track
+ * costs width a phone does not have.
+ */
+export const MOBILE_MAX_WIDTH = 768
 /** Right column drag clamp floor. */
 export const RIGHTBAR_MIN = 300
 /** Maximum normal right panel width as a fraction of the frame. */
