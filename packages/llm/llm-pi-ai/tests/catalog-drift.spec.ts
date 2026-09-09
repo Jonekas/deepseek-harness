@@ -24,10 +24,10 @@ describe('pi-ai catalog drift classification', () => {
     expect(() => gateway({ [field]: { budget: { $var: 'thinking.unknown' } } })).toThrow()
   })
 
+  // `thinkingTokenBudgetField`, `vllmPriority`, and `supportsMaxOutputTokens` were withheld
+  // locally while this fork carried pi-ai ahead of the catalog that classified them; 0.1.5-alpha.1
+  // offers all three, so only the vendor-owned Anthropic fields stay unconfigurable.
   it.each([
-    ['thinkingTokenBudgetField', 'thinking_budget'],
-    ['vllmPriority', 1],
-    ['supportsMaxOutputTokens', false],
     ['supportsMidConvoEffort', true],
     ['allowedFallbackModels', []],
   ] as const)('refuses withheld %s at route and model configuration sites', (field, value) => {
