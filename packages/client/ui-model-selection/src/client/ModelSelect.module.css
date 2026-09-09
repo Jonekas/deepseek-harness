@@ -85,6 +85,22 @@
   }
 }
 
+/* Phone widths take the icon-only floor outright, without waiting for the
+   container cut: between the two cuts the full name fits the row but leaves the
+   composer's other controls to wrap onto an extra line, and a line of the
+   composer costs a line of transcript. The name stays in the title and
+   aria-label, as it does above. */
+@media (max-width: 768px) {
+  .triggerIcon {
+    display: block;
+  }
+
+  .triggerLabel,
+  .triggerEffort {
+    display: none;
+  }
+}
+
 .chevron {
   flex: 0 0 auto;
   color: var(--dsw-alias-label-caption);

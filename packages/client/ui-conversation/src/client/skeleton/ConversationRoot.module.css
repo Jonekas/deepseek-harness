@@ -98,13 +98,32 @@
   line-height: 20px;
 }
 
-/* Phone widths: the breadcrumbs are the first thing the header cannot afford —
-   squeezed against the mode chip and the action buttons they ellipsize to a
-   single character, which names nothing. The shell shows the session title in
-   its own bar at these widths, so dropping them here loses no information. */
+/* Phone widths: the transcript is the scarce resource, so the header spends as
+   little height as it can. The breadcrumbs go first — squeezed against the mode
+   chip and the action buttons they ellipsize to a single character, which names
+   nothing, and the shell already shows the session title in its own bar. The
+   rest is the drawn desktop rhythm tightened, not a different header. */
 @media (max-width: 768px) {
   .crumbs {
     display: none;
+  }
+
+  .header {
+    padding: 6px 12px 0;
+  }
+
+  .titleRow {
+    min-height: 28px;
+  }
+
+  .tabs {
+    gap: 24px;
+    margin-top: 0;
+    padding-left: 4px;
+  }
+
+  .tab {
+    padding-bottom: 8px;
   }
 }
 

@@ -31,7 +31,7 @@ Global panels occupy the root-scoped `main` keyed slot; `conversation` is the re
 
 ### Mobile presentation
 
-At or below 768px the frame stops being a column layout. The sidebar and the conversation share one full-width cell and stay mounted, so switching between them preserves scroll offsets and drafts; the right column can take no track and both drag handles are absent. Opening a session that is not the current one shows the conversation, and so does re-picking the current one from the list; the selection restored with the session list is not a navigation gesture, so a reload lands on the list. A 44px bar carrying the session title and a back control returns to it. The chosen view survives crossing the breakpoint in either direction.
+At or below 768px the frame stops being a column layout. The sidebar and the conversation share one full-width cell and stay mounted, so switching between them preserves scroll offsets and drafts; the right column can take no track and both drag handles are absent. Opening a session that is not the current one shows the conversation, and so does re-picking the current one from the list; the selection restored with the session list is not a navigation gesture, so a reload lands on the list. A 40px bar carrying the session title and a back control returns to it. The chosen view survives crossing the breakpoint in either direction. The frame's own chrome stops there; the columns' occupants tighten their own phone presentation so the transcript keeps the screen.
 
 ### Theme presentation
 

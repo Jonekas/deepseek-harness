@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-09-mobile-single-view-shell.md
-2026-09-09-mobile-single-view-shell.md: 717685693bb89ee7587bba6f0f848bb98c4f04b6
-2026-09-09-mobile-single-view-shell.zh.md: 44561eed9c419a0cf46300b5488937a4c1c60362
+2026-09-09-mobile-single-view-shell.md: 922d73ef70fe52969ef61a9654dac5e2475e3c8e
+2026-09-09-mobile-single-view-shell.zh.md: e6b28e7ef37dae7ba7bf9768f8d2accf5bb5a9db

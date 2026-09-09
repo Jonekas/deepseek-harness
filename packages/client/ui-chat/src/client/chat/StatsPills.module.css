@@ -15,6 +15,15 @@
   line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
 }
 
+/* Phone widths: both pills ellipsize past their first word, so the strip costs a
+   row of transcript and returns "2 turns 17 s…". The same figures stay reachable
+   from the session's own surfaces. */
+@media (max-width: 768px) {
+  .root {
+    display: none;
+  }
+}
+
 /* Dialog anchor: shrink-wraps its pill so the panel clamp measures the pill. */
 .anchor {
   display: inline-flex;

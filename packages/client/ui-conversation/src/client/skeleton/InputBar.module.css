@@ -111,6 +111,38 @@
   padding: 10px 12px 0;
 }
 
+/* Phone widths: the card is the second-largest block on screen after the
+   transcript, so its internal rhythm tightens. The draft keeps its own floor;
+   only the space around the controls gives way. */
+@media (max-width: 768px) {
+  .root {
+    padding-bottom: 4px;
+  }
+
+  .card {
+    gap: 8px;
+    padding-top: 6px;
+  }
+
+  .row {
+    gap: 8px;
+    padding: 0 6px 4px;
+  }
+
+  .tools,
+  .modes,
+  .trailing {
+    gap: 8px;
+    row-gap: 6px;
+  }
+
+  /* The draft is one line until the reader types; the two-line hero floor is a
+     new-session affordance the docked composer does not need. */
+  .input {
+    min-height: 28px;
+  }
+}
+
 /* Floating overlay anchor (menu / popupSelect shell): entries position
    themselves against the card (bottom: 100% + gap); closed entries render null. */
 .overlayAnchor {
