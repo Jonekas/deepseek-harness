@@ -26,7 +26,7 @@ kind: "package-library"
 
 ### 校验 JSON 数据或创建快照
 
-需要 predicate 时使用 `isJsonValue()`，还需要分离副本时使用 `snapshotJsonValue()`。两者只接受无损 JSON 根值：`null`、布尔值、除负零外的有限数字、字符串、稠密的内建数组，以及只含可枚举字符串键的普通或 null-prototype 记录。循环、稀疏数组、自有 symbol 或不可枚举属性、函数和 class 实例都会被拒绝。
+需要 predicate 时使用 `isJsonValue()`，还需要分离副本时使用 `snapshotJsonValue()`。两者只接受无损 JSON 根值：`null`、布尔值、除负零外的有限数字、字符串、稠密的内建数组，以及只含可枚举字符串键的普通或 null-prototype 记录。循环、稀疏数组、自有 symbol 或不可枚举属性、函数和 class 实例都会被拒绝。内建构造函数检查以当前引擎的原生表示为比较基准，因此 Chromium 和 Firefox 都能接受来自其他 realm 的普通值。
 
 ```ts
 import { isJsonValue, snapshotJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'

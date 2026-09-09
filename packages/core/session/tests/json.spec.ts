@@ -1,5 +1,5 @@
 import { runInNewContext } from 'node:vm'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { isJsonValue, snapshotJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 
 function objectWithForgedIntrinsicPrototype(revoked = false): Record<string, unknown> {
@@ -62,6 +62,39 @@ describe('snapshotJsonValue', () => {
     expect(arraySnapshot).toEqual([2, { ok: true }])
     expect(Object.getPrototypeOf(objectSnapshot)).toBe(Object.prototype)
     expect(Object.getPrototypeOf(arraySnapshot)).toBe(Array.prototype)
+  })
+
+  it('accepts local and foreign plain containers with multiline native constructor source', () => {
+    const foreign = runInNewContext('({ Object, Array, value: { nested: [1] } })') as {
+      Object: ObjectConstructor
+      Array: ArrayConstructor
+      value: { nested: number[] }
+    }
+    const intrinsicNames = new Map<unknown, string>([
+      [Object, 'Object'], [Array, 'Array'],
+      [foreign.Object, 'Object'], [foreign.Array, 'Array'],
+    ])
+    const nativeToString = Function.prototype.toString
+    // SpiderMonkey formats native functions across lines instead of V8's single line.
+    const toString = vi.spyOn(Function.prototype, 'toString').mockImplementation(function (this: unknown) {
+      const name = intrinsicNames.get(this)
+      return name === undefined
+        ? nativeToString.call(this)
+        : `function ${name}() {\n    [native code]\n}`
+    })
+    try {
+      for (const value of [{ nested: [1] }, foreign.value]) {
+        expect(isJsonValue(value)).toBe(true)
+        const snapshot = snapshotJsonValue(value)
+        expect(snapshot).toEqual({ nested: [1] })
+        expect(snapshot).not.toBe(value)
+        expect(snapshot?.nested).not.toBe(value.nested)
+      }
+      expect(isJsonValue(objectWithForgedIntrinsicPrototype())).toBe(false)
+      expect(snapshotJsonValue(objectWithForgedIntrinsicPrototype())).toBeUndefined()
+    } finally {
+      toString.mockRestore()
+    }
   })
 
   it('reads each object value and array slot once while materializing', () => {
