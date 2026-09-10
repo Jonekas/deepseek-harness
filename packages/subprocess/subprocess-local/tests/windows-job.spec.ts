@@ -138,13 +138,14 @@ describe('Windows Job capability', () => {
 })
 
 describe('Windows parent runner contract', () => {
-  it('isolates runner stdio, carries target stdio on fd 4 through fd 6, and sends cwd/env', () => {
+  it('isolates runner stdio, hides the runner console window, carries target stdio on fd 4 through fd 6, and sends cwd/env', () => {
     const { child, result, spawn } = launch()
     expect(spawn).toHaveBeenCalledWith('C:\\node.exe', [
       'C:\\runner.js', '--', 'tool.exe', 'literal arg',
     ], expect.objectContaining({
       cwd: process.cwd(),
       stdio: ['ignore', 'ignore', 'ignore', 'ipc', 'pipe', 'pipe', 2],
+      windowsHide: true,
     }))
     expect(child.sent).toEqual([{ type: 'start', cwd: 'C:\\target', env: { TARGET: 'yes' } }])
     expect(result.stdin).toBe(child.targetStdin)

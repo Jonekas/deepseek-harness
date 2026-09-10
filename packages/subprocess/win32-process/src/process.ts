@@ -517,6 +517,9 @@ export function spawnInheritedJobProcess(
  * @param api - active binding table.
  * @param options - command, cwd, argv, and target carrier descriptors.
  * @returns caller-owned process and Job handles after successful resume.
+ * @remarks CREATE_NO_WINDOW keeps a console target from allocating a visible
+ * console window. The target's standard streams are the carrier descriptors
+ * passed through STARTF_USESTDHANDLES, so it never needs a console of its own.
  */
 export function spawnCurrentTokenJobProcess(
   api: CurrentTokenProcessBindings,
@@ -531,7 +534,7 @@ export function spawnCurrentTokenJobProcess(
       null,
       null,
       1,
-      abi.CREATE_SUSPENDED | abi.CREATE_UNICODE_ENVIRONMENT,
+      abi.CREATE_SUSPENDED | abi.CREATE_UNICODE_ENVIRONMENT | abi.CREATE_NO_WINDOW,
       environment,
       options.cwd,
       startupInfo,
